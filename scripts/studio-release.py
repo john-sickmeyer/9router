@@ -33,9 +33,23 @@ def switch(target):
 
 def stop(label=LABEL):
     run('launchctl', 'bootout', f'{DOMAIN}/{label}', check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    for _ in range(40):
+        probe = run('launchctl', 'print', f'{DOMAIN}/{label}', check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if probe.returncode != 0: return
+        time.sleep(0.25)
+    raise RuntimeError(f'Timed out waiting for {label} to unload')
 
 def start(plist=PLIST):
-    run('launchctl', 'bootstrap', DOMAIN, str(plist))
+    # launchd can briefly return EIO after a completed bootout. Retry only this
+    # bounded startup step; activation still checks the actual served revision.
+    for _ in range(20):
+        result = run('launchctl', 'bootstrap', DOMAIN, str(plist), check=False, capture_output=True, text=True)
+        if result.returncode == 0: return
+        label = plistlib.loads(pathlib.Path(plist).read_bytes())['Label']
+        probe = run('launchctl', 'print', f'{DOMAIN}/{label}', check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if probe.returncode == 0: return
+        time.sleep(0.5)
+    raise RuntimeError(f'Could not start {plist.name}: {result.stderr.strip()}')
 
 def stage(source):
     source = pathlib.Path(source).resolve()
@@ -73,6 +87,7 @@ def activate(rev, migrate):
     if old_plist: (backup / PLIST.name).write_bytes(old_plist)
     MAINTENANCE.write_text('Draining for release ' + rev)
     stopped = False
+    backed_up = False
     stock = []
     try:
         if previous:
@@ -80,9 +95,6 @@ def activate(rev, migrate):
                 if not status()['pending']: break
                 time.sleep(1)
             else: raise RuntimeError('Requests still active after 60 seconds; update cancelled')
-        with sqlite3.connect(DATA / 'db/data.sqlite') as src, sqlite3.connect(backup / 'data.sqlite') as dest:
-            src.backup(dest)
-        os.chmod(backup / 'data.sqlite', 0o600)
         stopped = True
         if migrate:
             for label in ['com.sickmeyer.9router-watchdog', 'com.9router.autostart']:
@@ -94,6 +106,12 @@ def activate(rev, migrate):
                     p.replace(disabled)
                     stock.append((p, disabled))
         stop(); stopped = True
+        # Capture after stopping the worker so background OAuth refresh cannot
+        # rotate credentials between the backup and the service stop.
+        with sqlite3.connect(DATA / 'db/data.sqlite') as src, sqlite3.connect(backup / 'data.sqlite') as dest:
+            src.backup(dest)
+        os.chmod(backup / 'data.sqlite', 0o600)
+        backed_up = True
         switch(release)
         node = shutil.which('node')
         if not node: raise RuntimeError('Node is not on PATH')
@@ -118,7 +136,7 @@ def activate(rev, migrate):
     except Exception:
         if stopped:
             stop()
-            restore_db(backup)
+            if backed_up: restore_db(backup)
             if previous:
                 switch(previous)
                 PLIST.write_bytes(old_plist)
