@@ -12,15 +12,14 @@ function processSSEMessage(msg, state) {
 
   const eventMatch = msg.match(/^event:\s*(.+)$/m);
   const dataMatch = msg.match(/^data:\s*(.+)$/m);
-  if (!eventMatch || !dataMatch) return;
-
-  const eventType = eventMatch[1].trim();
+  if (!dataMatch) return;
   const dataStr = dataMatch[1].trim();
   if (dataStr === "[DONE]") return;
 
   let parsed;
   try { parsed = JSON.parse(dataStr); }
   catch { return; }
+  const eventType = eventMatch?.[1]?.trim() || parsed.type;
 
   if (eventType === "response.created") {
     state.responseId = parsed.response?.id || state.responseId;
@@ -29,6 +28,7 @@ function processSSEMessage(msg, state) {
     state.items.set(parsed.output_index ?? 0, parsed.item);
   } else if (eventType === "response.completed" || eventType === "response.done") {
     state.status = "completed";
+    state.completedResponse = parsed.response;
     if (parsed.response?.usage) {
       state.usage.input_tokens = parsed.response.usage.input_tokens || 0;
       state.usage.output_tokens = parsed.response.usage.output_tokens || 0;
@@ -69,7 +69,7 @@ export async function convertResponsesStreamToJson(stream) {
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const messages = buffer.split("\n\n");
+      const messages = buffer.split(/\r?\n\r?\n/);
       buffer = messages.pop() || "";
 
       for (const msg of messages) {
@@ -92,12 +92,14 @@ export async function convertResponsesStreamToJson(stream) {
     output.push(state.items.get(i) || { type: "message", content: [], role: "assistant" });
   }
 
+  const completed = state.completedResponse || {};
   return {
-    id: state.responseId || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ...completed,
+    id: completed.id || state.responseId || `resp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     object: "response",
-    created_at: state.created,
+    created_at: completed.created_at || state.created,
     status: state.status || "completed",
-    output,
-    usage: state.usage
+    output: Array.isArray(completed.output) ? completed.output : output,
+    usage: { ...state.usage, ...completed.usage }
   };
 }

@@ -22,9 +22,7 @@ fi
 npm ci --no-audit --no-fund
 npm --prefix tests ci --no-audit --no-fund
 npm --prefix tests run test:studio
-build_data=$(mktemp -d)
-trap 'rm -rf "$build_data"' EXIT
-DATA_DIR="$build_data" DISABLE_BACKGROUND_TOKEN_REFRESH=1 npm run build
+bash scripts/studio-build.sh
 echo "Candidate passed tests and build: $candidate"
 echo "Review git diff origin/studio...HEAD. Push this branch and open a PR to studio."
 echo "After review/merge, build and stage that exact commit with scripts/studio-release.py."

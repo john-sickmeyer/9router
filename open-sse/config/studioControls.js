@@ -3,6 +3,8 @@
 export const STUDIO_CONTROL_VERSION = 1;
 export const CAPABILITY_TTL_MS = 6 * 60 * 60 * 1000;
 export const CODEX_CATALOG_VERSION = "0.163.0";
+export const CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint";
+export const CODEX_UNCONFIRMED_SPEED_WARNING = "Codex did not confirm the served speed. Its ChatGPT endpoint can report default even when acceleration is observed; this is not proof of a downgrade or the billed tier.";
 export const CODEX_CATALOG_URL = `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CATALOG_VERSION}`;
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const CONTROL_PROVIDERS = new Set(["codex", "claude", "anthropic"]);

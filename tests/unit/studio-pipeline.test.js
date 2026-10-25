@@ -34,6 +34,17 @@ beforeEach(() => {
   fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers: ["ultrafast"], efforts: ["max", "ultra"] } } } } }));
 });
 describe("Studio client-to-provider pipeline", () => {
+  it("preserves useful output while clearly auditing ambiguous Codex default metadata", async () => {
+    fx.reportedTier = "default";
+    const response = await handleChat(new Request("http://localhost/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.163.0" },
+      body: JSON.stringify({ model: "cx/gpt-6-astra@ultrafast(max)", input: "hi", stream: false }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("OK");
+    expect(fx.events).toContainEqual(expect.objectContaining({ state: "completed", speedVerified: false, warning: expect.stringContaining("did not confirm") }));
+    expect(fx.sent).toHaveLength(1);
+  });
   it("surfaces a provider downgrade as failure through the full JSON handler", async () => {
     fx.reportedTier = "priority";
     const response = await handleChat(new Request("http://localhost/v1/responses", {

@@ -1,4 +1,4 @@
-import { CODEX_EFFORTS, SPEEDS } from "../config/studioControls.js";
+import { CODEX_EFFORTS, SPEEDS, CODEX_ROUTING_HINT_HEADER } from "../config/studioControls.js";
 import { BaseExecutor } from "./base.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
@@ -243,6 +243,18 @@ export class CodexExecutor extends BaseExecutor {
   buildUrl(model, stream, urlIndex = 0, credentials = null) {
     const base = super.buildUrl(model, stream, urlIndex, credentials);
     return this._isCompact ? `${base}/compact` : base;
+  }
+
+  finalizeHeaders(headers, body) {
+    // Match the native client's model/tier hint using the final wire values.
+    // Remove differently cased overrides so fetch cannot combine stale hints.
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === CODEX_ROUTING_HINT_HEADER) delete headers[name];
+    }
+    if (body?.model) {
+      headers[CODEX_ROUTING_HINT_HEADER] = `model=${body.model}${body.service_tier ? `;tier=${body.service_tier}` : ""}`;
+    }
+    return headers;
   }
 
   async refreshCredentials(credentials, log) {

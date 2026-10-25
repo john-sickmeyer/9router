@@ -1,7 +1,8 @@
-import { CONTROL_EVENTS as E, MAX_CONTROL_FRAME_BYTES, SPEEDS } from "../config/studioControls.js";
+import { CONTROL_EVENTS as E, MAX_CONTROL_FRAME_BYTES, SPEEDS, CODEX_UNCONFIRMED_SPEED_WARNING } from "../config/studioControls.js";
 
 // Inspect only envelope metadata. Tool calls, output, and reasoning are never logged.
-// A requested accelerated tier must be acknowledged before forwarding completion.
+// Keep sent controls distinct from provider confirmation. ChatGPT's Codex backend
+// can return default even when controlled measurements show acceleration.
 export async function observeControlResponse(response, controls, onEvent = async () => {}) {
   if (!controls || !response.ok) return response;
   const codex = controls.provider === "codex";
@@ -17,14 +18,16 @@ export async function observeControlResponse(response, controls, onEvent = async
   };
   const complete = async () => {
     if (terminal) return reject("Duplicate upstream completion");
+    const unconfirmedCodexSpeed = codex && expected && expected !== "default" && reportedTier === "default";
     if (expected && expected !== "default" && reportedTier !== expected) {
-      return reject(`Requested ${expected}, but upstream reported ${reportedTier || "no speed"}`);
+      if (!unconfirmedCodexSpeed) return reject(`Requested ${expected}, but upstream reported ${reportedTier || "no speed"}`);
     }
     if (reportedEffort && controls.effort && reportedEffort !== controls.effort) {
       return reject(`Requested effort ${controls.effort}, but upstream reported ${reportedEffort}`);
     }
     terminal = true;
-    await onEvent({ state: "completed", reportedTier, reportedEffort, speedVerified: Boolean(expected && reportedTier === expected) });
+    await onEvent({ state: "completed", reportedTier, reportedEffort, speedVerified: Boolean(expected && reportedTier === expected),
+      ...(unconfirmedCodexSpeed ? { warning: CODEX_UNCONFIRMED_SPEED_WARNING } : {}) });
   };
   const inspect = async (data, eventType) => {
     const type = data.type || eventType;

@@ -397,6 +397,12 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return errorResponse(HTTP_STATUS.BAD_GATEWAY, "Failed to prepare provider request");
     }
 
+    // Some upstream preparation failures return early instead of throwing.
+    // Always clear the drain tracker for a failed attempt.
+    if (!result.success && requestControls) {
+      await recordControl({ requestId: controlRequestId, connectionId: credentials.connectionId, provider, model, state: "failed", status: result.status });
+    }
+
     if (result.success) {
       result.response.headers.set("x-9router-request-id", controlRequestId);
       if (requestControls) {

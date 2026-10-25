@@ -81,6 +81,11 @@ export class BaseExecutor {
     return body;
   }
 
+  // Provider-specific routing invariants run after user header overrides.
+  finalizeHeaders(headers, body) {
+    return headers;
+  }
+
   shouldRetry(status, urlIndex) {
     return status === HTTP_STATUS.RATE_LIMITED && urlIndex + 1 < this.getFallbackCount();
   }
@@ -132,6 +137,7 @@ export class BaseExecutor {
       const headers = this.buildHeaders(credentials, stream, url, model, transformedBody);
       // User per-provider override wins over registry headers (blocked names filtered at the API)
       if (providerOverrides?.headers) Object.assign(headers, providerOverrides.headers);
+      this.finalizeHeaders(headers, transformedBody);
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 

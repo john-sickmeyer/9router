@@ -30,7 +30,9 @@ Claude Fast requires a supported model and provider-side eligibility/usage credi
 
 The normal 9Router account strategy remains available. With fill-first, a quota/rate/capacity failure locks that account/model and retries the next eligible account with the same conversation, model, speed, and effort. Accelerated requests never fall back to Standard. Once output has started, interrupted streams fail visibly; they are not replayed automatically because replaying tool calls can duplicate effects.
 
-`x-9router-request-id` identifies the request in Studio controls. The audit distinguishes **sent** controls from **reported** controls. Speed must be confirmed before a successful accelerated completion. Effort is checked in the final outbound body; when the provider echoes effort it must match. An absent provider echo is shown as absent, not inferred.
+`x-9router-request-id` identifies the request in Studio controls. The audit distinguishes **sent** controls from **reported** controls. Effort is checked in the final outbound body; when the provider echoes effort it must match. An absent provider echo is shown as absent, not inferred. The native Codex model/tier routing header is also generated from the final request, after custom header overrides.
+
+Codex's ChatGPT endpoint can return `service_tier: default` for accelerated requests. This also occurs outside 9Router and has been [reported upstream](https://github.com/openai/codex/issues/32191) and [measured by another gateway user](https://github.com/yetone/magpie/issues/3077). In that case, useful output is preserved and the audit explicitly says **served speed unconfirmed**. It never rewrites the provider's report or claims the billed tier. A conflicting explicit accelerated tier still fails. Claude Fast requires `usage.speed: fast` before successful completion.
 
 The audit stores only request IDs, account IDs, model/control metadata, status, and timestamps at `~/.9router/studio-controls.jsonl` (0600, rotates at 5 MiB with one previous file). It excludes prompts, model output, tools, and credentials. Existing upstream request-history settings remain separate.
 
@@ -80,12 +82,12 @@ git pull --ff-only origin studio
 npm ci --no-audit --no-fund
 npm --prefix tests ci --no-audit --no-fund
 npm --prefix tests run test:studio
-DATA_DIR="$(mktemp -d)" DISABLE_BACKGROUND_TOKEN_REFRESH=1 npm run build
+bash scripts/studio-build.sh
 python3 scripts/studio-release.py stage .
 python3 scripts/studio-release.py activate FULL_40_CHARACTER_COMMIT_SHA
 ```
 
-Before activation, validate the staged build on an unused loopback port with an isolated data directory. Use credential-free health tests first. Do not run two copies of the same refresh token through independent refresh schedulers.
+The build wrapper verifies that the source stays clean and on the same commit throughout the build. Staging refuses an old build from another revision. Before activation, validate the staged build on an unused loopback port with an isolated data directory. Use credential-free health tests first. Do not run two copies of the same refresh token through independent refresh schedulers.
 
 Activation puts the running fork into maintenance mode, waits up to 60 seconds for active controlled requests, makes a consistent SQLite backup, switches the build symlink, restarts only its LaunchAgent, and verifies the new release ID. Failure restores the prior build and pre-activation database before reopening traffic. A timeout leaves the running release unchanged. The first migration uses the explicit `--migrate-stock` flag because stock 9Router lacks this maintenance endpoint.
 

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { observeControlResponse } from "../../open-sse/services/controlResponse.js";
+import { convertResponsesStreamToJson } from "../../open-sse/transformer/streamToJsonConverter.js";
 const controls = { provider: "codex", tier: "ultrafast", effort: "max" };
 const event = (type, body = {}) => `event: ${type}\r\ndata: ${JSON.stringify({ type, ...body })}\r\n\r\n`;
 const done = (tier = "ultrafast", effort = "max") => event("response.completed", { response: { status: "completed", service_tier: tier, reasoning: { effort } } });
@@ -8,6 +9,22 @@ function stream(text, width = 7) {
   return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += width) c.enqueue(bytes.slice(i, i + width)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
 }
 describe("Provider confirmation", () => {
+  it("keeps provider metadata, final output, and detailed usage in JSON conversion", async () => {
+    const output = [{ type: "message", content: [{ type: "output_text", text: "OK" }] }];
+    const response = { id: "fixture", status: "completed", service_tier: "default", reasoning: { effort: "max" }, output, usage: { input_tokens: 12, output_tokens: 2, input_tokens_details: { cached_tokens: 6 } } };
+    const res = stream(`data: ${JSON.stringify({ type: "response.completed", response })}\r\n\r\n`);
+    const json = await convertResponsesStreamToJson(res.body);
+    expect(json).toMatchObject(response);
+  });
+  it("records ambiguous Codex default metadata without inventing confirmation or failing useful output", async () => {
+    const audit = vi.fn();
+    const res = await observeControlResponse(stream(done("default")), controls, audit);
+    expect(await res.text()).toContain("response.completed");
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ state: "completed", speedVerified: false, reportedTier: "default", warning: expect.stringContaining("did not confirm") }));
+  });
+  it("still rejects an actual Claude fast downgrade", async () => {
+    await expect(observeControlResponse(Response.json({ usage: { speed: "standard" } }), { provider: "claude", tier: "priority" })).rejects.toThrow();
+  });
   it.each([null, "application/json", "text/plain"])("recognizes forced Codex SSE with content-type %s", async contentType => {
     const response = stream(done());
     if (contentType) response.headers.set("content-type", contentType);

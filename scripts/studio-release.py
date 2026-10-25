@@ -44,6 +44,9 @@ def stage(source):
     if dirty: raise RuntimeError('Stage only a clean, committed source tree')
     built = source / '.next/standalone'
     if not (built / 'custom-server.js').is_file(): raise RuntimeError('Run npm run build first')
+    stamp = built / 'studio-build.json'
+    if not stamp.is_file() or json.loads(stamp.read_text()).get('revision') != rev:
+        raise RuntimeError('Build does not match this source commit; run bash scripts/studio-build.sh')
     dest = ROOT / 'releases' / rev
     if dest.exists(): raise RuntimeError(f'Release already exists: {dest}')
     dest.parent.mkdir(parents=True, exist_ok=True)
