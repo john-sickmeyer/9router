@@ -27,6 +27,9 @@ export const STUDIO_VISIBLE_MODELS = [
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
   { id: "cc/claude-fable-5-1", provider: "claude", name: "Claude Fable 5.1" },
 ];
+export const STUDIO_MODEL_ALIASES = Object.fromEntries(
+  STUDIO_VISIBLE_MODELS.map(({ id }) => [id.slice(id.indexOf("/") + 1), id])
+);
 export const CLAUDE_EFFORTS = {
   "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"],
   "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],

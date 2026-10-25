@@ -224,7 +224,7 @@ describe("/v1/models routes filter by key", () => {
     }));
     const body = await response.json();
     expect(body.has_more).toBe(false);
-    expect(body.data.map(m => m.id)).toEqual(["cc/claude-opus-5-5"]);
+    expect(body.data.map(m => m.id)).toEqual(["claude-opus-5-5"]);
     expect(body.data[0].capabilities.effort.max.supported).toBe(true);
     expect(response.headers.get("vary")).toBe("anthropic-version");
   });

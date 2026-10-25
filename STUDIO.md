@@ -36,6 +36,8 @@ Happier's Codex picker uses Codex `model/list`, not `/v1/models`. Generate a mat
 
 Changing a discovery catalog does not add a persistent effort badge or Ultrafast switch to Happier. Validate selections through an actual Happier session and the Studio outbound audit. Do not infer runtime support from a model label alone.
 
+Claude discovery uses canonical model IDs so the runtime's reported ID matches the picker row. In curated mode those two canonical IDs resolve to the Claude OAuth account pool; explicit operator aliases take precedence. To keep Claude's running-session SDK catalog equally small, configure its user-level `modelPicker` with `replaceBuiltInOptions: true` and two `options` rows (`model`/`label`) for `claude-opus-5-5` and `claude-fable-5-1`. This is a display preference; it does not restrict subagent routing as `availableModels` would.
+
 ## Account switching and verification
 
 The normal 9Router account strategy remains available. With fill-first, a quota/rate/capacity failure locks that account/model and retries the next eligible account with the same conversation, model, speed, and effort. Accelerated requests never fall back to Standard. Once output has started, interrupted streams fail visibly; they are not replayed automatically because replaying tool calls can duplicate effects.

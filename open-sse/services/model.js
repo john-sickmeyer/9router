@@ -1,4 +1,5 @@
 import REGISTRY from "../providers/registry/index.js";
+import { STUDIO_MODEL_ALIASES, isStudioCuratedCatalogEnabled } from "../config/studioControls.js";
 
 // Alias→id derived from registry single-source: id→id, alias→id, aliases[]→id.
 // Media-only providers without a registry transport entry keep explicit aliases here.
@@ -110,6 +111,7 @@ export async function getModelInfoCore(modelStr, aliasesOrGetter) {
   // Resolve alias
   const resolved =
     resolveModelAliasFromMap(parsed.model, aliases) ||
+    (isStudioCuratedCatalogEnabled() && resolveModelAliasFromMap(parsed.model, STUDIO_MODEL_ALIASES)) ||
     resolveModelAliasFromMap(parsed.model, BUILTIN_MODEL_ALIASES);
   if (resolved) {
     return resolved;

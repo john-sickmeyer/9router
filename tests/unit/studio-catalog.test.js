@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { studioModelCatalog } from "../../open-sse/services/studioCatalog.js";
 import { resolveControls } from "../../open-sse/services/studioControls.js";
+import { getModelInfoCore } from "../../open-sse/services/model.js";
 
 const models = [
   "cx/gpt-6.1-sol", "cx/gpt-6-astra", "cx/gpt-6-sol", "cc/claude-opus-5-5",
@@ -18,7 +19,7 @@ describe("Studio picker catalog", () => {
     const catalog = studioModelCatalog(models, { anthropic: true });
     expect(catalog).toHaveLength(2);
     for (const model of catalog) {
-      expect(model.id).toMatch(/^cc\//);
+      expect(model.id).toMatch(/^claude-/);
       expect(model.display_name).toMatch(/^Claude /);
       expect(model.max_input_tokens).toBe(200000);
       expect(model.capabilities.vision).toBe(true);
@@ -34,5 +35,15 @@ describe("Studio picker catalog", () => {
   });
   it("retains explicit Codex speed alias routing independently of discovery", () => {
     expect(resolveControls("codex", "gpt-6-astra@ultrafast(max)", {})).toMatchObject({ tier: "ultrafast", effort: "max" });
+  });
+  it("routes canonical Studio IDs to the account pool while respecting explicit operator aliases", async () => {
+    vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
+    try {
+      expect(await getModelInfoCore("claude-opus-5-5", {})).toEqual({ provider: "claude", model: "claude-opus-5-5" });
+      expect(await getModelInfoCore("claude-fable-5-1", {})).toEqual({ provider: "claude", model: "claude-fable-5-1" });
+      expect(await getModelInfoCore("claude-opus-5-5", { "claude-opus-5-5": "anthropic/claude-opus-5-5" })).toEqual({ provider: "anthropic", model: "claude-opus-5-5" });
+      vi.stubEnv("STUDIO_CURATED_CATALOG", "0");
+      expect(await getModelInfoCore("claude-opus-5-5", {})).toEqual({ provider: "anthropic", model: "claude-opus-5-5" });
+    } finally { vi.unstubAllEnvs(); }
   });
 });

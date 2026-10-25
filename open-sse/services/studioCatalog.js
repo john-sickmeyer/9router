@@ -10,6 +10,9 @@ export function studioModelCatalog(models, { anthropic = false } = {}) {
     const source = available.get(id);
     if (!source) return [];
     const entry = { ...source, name, display_name: name };
+    // Claude's runtime reports canonical IDs. Matching them avoids a second
+    // selected-model row beside the gateway-prefixed spelling in Happier.
+    if (anthropic) entry.id = id.slice(id.indexOf("/") + 1);
     if (provider === "claude") {
       const levels = effortLevels(provider, id.slice(id.indexOf("/") + 1));
       entry.type = "model";
