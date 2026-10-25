@@ -121,6 +121,7 @@ def activate(rev, migrate):
             'ThrottleInterval': 10, 'ExitTimeOut': 30,
             'EnvironmentVariables': {'PATH': os.environ.get('PATH', ''), 'PORT': str(PORT), 'HOSTNAME': '127.0.0.1',
                 'NODE_ENV': 'production', 'DATA_DIR': str(DATA), 'STUDIO_RELEASE': rev,
+                'STUDIO_CURATED_CATALOG': '1',
                 'STUDIO_MAINTENANCE_FILE': str(MAINTENANCE)},
             'StandardOutPath': str(log), 'StandardErrorPath': str(log)}
         PLIST.write_bytes(plistlib.dumps(spec)); start()

@@ -1,4 +1,5 @@
-import { expandControlModels } from "open-sse/services/studioControls.js";
+import { studioModelCatalog } from "open-sse/services/studioCatalog.js";
+import { isStudioCuratedCatalogEnabled } from "open-sse/config/studioControls.js";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
   ALIAS_TO_ID,
@@ -665,12 +666,15 @@ export async function GET(request) {
   try {
     // Detect cross-instance recursive /models fetch (another 9router fetching our /models)
     const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
+    const models = await buildModelsList([LLM_KIND], { skipDynamicFetch });
     const data = await filterModelsListForKey(
       await getKeyAccessContext(request),
-      expandControlModels(await buildModelsList([LLM_KIND], { skipDynamicFetch }), await getProviderConnections({ isActive: true }))
+      isStudioCuratedCatalogEnabled() ? studioModelCatalog(models, {
+        anthropic: Boolean(request?.headers?.get("anthropic-version")),
+      }) : models
     );
-    return Response.json({ object: "list", data }, {
-      headers: { "Access-Control-Allow-Origin": "*" },
+    return Response.json({ object: "list", data, has_more: false, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null }, {
+      headers: { "Access-Control-Allow-Origin": "*", "Vary": "anthropic-version", "Cache-Control": "no-store" },
     });
   } catch (error) {
     console.log("Error fetching models:", error);

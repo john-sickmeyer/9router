@@ -1,4 +1,4 @@
-import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, SPEED_NAMES, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
+import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, SPEED_NAMES, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 
 export class ControlError extends Error {
@@ -39,6 +39,9 @@ export function resolveControls(provider, model, body, requested = {}, providerT
     if (typeof v !== "string" || !Object.hasOwn(SPEEDS, v.toLowerCase())) throw new ControlError(`Unsupported speed: ${String(v)}`);
     return SPEEDS[v.toLowerCase()];
   }), "speed");
+  if (!isCodex && tier === "priority" && !CLAUDE_FAST_ENABLED) {
+    throw new ControlError("Claude Fast is disabled on this Studio because it spends extra-usage credits. Select Standard speed.");
+  }
   if (!isCodex && tier && tier !== "default" && (tier !== "priority" || !CLAUDE_FAST_MODELS.has(base))) {
     throw new ControlError(`Fast mode is not supported for ${base}`);
   }
@@ -107,7 +110,7 @@ export function expandControlModels(models, connections) {
     const levels = effortLevels(provider, model);
     if (!levels.length) continue;
     for (const [speed, tier] of Object.entries({ standard: "default", fast: "priority", ultrafast: "ultrafast" })) {
-      if (provider === "claude" && tier !== "default" && (tier !== "priority" || !CLAUDE_FAST_MODELS.has(model))) continue;
+      if (provider === "claude" && tier !== "default" && (!CLAUDE_FAST_ENABLED || tier !== "priority" || !CLAUDE_FAST_MODELS.has(model))) continue;
       if (provider === "codex" && tier !== "default" && !connections.some(c => c.provider === provider && connectionSupportsControls(c, { provider, model, tier }))) continue;
       for (const effort of [null, ...levels]) {
         const id = `${entry.id}@${speed}${effort ? `(${effort})` : ""}`;

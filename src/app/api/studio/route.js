@@ -1,7 +1,7 @@
 import { getProviderConnections } from "@/lib/localDb";
 import { refreshControlCapabilities } from "@/lib/studio/capabilities";
 import { controlStatus } from "@/lib/studio/audit";
-import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
+import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { connectionSupportsControls } from "open-sse/services/studioControls.js";
 
 export const dynamic = "force-dynamic";
@@ -11,10 +11,11 @@ export async function GET() {
   const choices = [];
   for (const [provider, prefix, models] of [["codex", "cx", CODEX_EFFORTS], ["claude", "cc", CLAUDE_EFFORTS]]) {
     for (const [model, efforts] of Object.entries(models)) {
+      if (isStudioCuratedCatalogEnabled() && !STUDIO_VISIBLE_MODELS.some(entry => entry.id === `${prefix}/${model}`)) continue;
       const accounts = connections.filter(c => c.provider === provider);
       if (!accounts.length) continue;
       const speeds = ["standard"];
-      if (provider === "claude" && CLAUDE_FAST_MODELS.has(model)) speeds.push("fast");
+      if (provider === "claude" && CLAUDE_FAST_ENABLED && CLAUDE_FAST_MODELS.has(model)) speeds.push("fast");
       if (provider === "codex") {
         for (const [name, tier] of [["fast", "priority"], ["ultrafast", "ultrafast"]]) {
           if (accounts.some(c => connectionSupportsControls(c, { provider, model, tier }))) speeds.push(name);

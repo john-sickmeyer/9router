@@ -9,15 +9,15 @@ Use the native request fields where the client exposes them:
 | Provider | Speed | Effort |
 |---|---|---|
 | Codex | `service_tier: "fast"` (sent as `priority`), `"ultrafast"`, or `"default"` | `reasoning.effort` or `reasoning_effort` |
-| Claude | `speed: "fast"` or `"standard"` | `output_config.effort` |
+| Claude | Standard; Fast is disabled on this Studio | `output_config.effort` |
 
-Clients without separate controls can select a model alias from `/v1/models`, or enter it as a custom model:
+Clients without separate speed controls can enter a custom model alias:
 
 ```
 cx/gpt-6-astra@ultrafast(max)
 cx/gpt-6.1-sol@fast(high)
 cx/gpt-6-sol@standard(max)
-cc/claude-opus-5@fast(xhigh)
+cc/claude-opus-5-5@standard(xhigh)
 ```
 
 An alias without parentheses selects speed while leaving effort to the client's request. This is useful with `/effort`. An alias with parentheses pins effort: a conflicting client field returns HTTP 400. Unsupported effort is rejected rather than reduced. Claude does not have an Ultrafast mode.
@@ -26,7 +26,15 @@ An alias without parentheses selects speed while leaving effort to the client's 
 
 Fast/Ultrafast choices depend on model and account eligibility. The fork reads Codex's account-specific model catalog and usage plan, caches that metadata for six hours, and refreshes stale metadata before accelerated requests. A manual **Refresh capabilities** button is also available. A catalog refresh does not purchase credits or change subscriptions. Failed/stale capability checks exclude the account from accelerated requests until refreshed.
 
-Claude Fast requires a supported model and provider-side eligibility/usage credits. It is not confirmed merely because an OAuth account is connected. The provider must return `usage.speed: "fast"`. Current supported Fast models are Opus 5.5, Opus 5, and Opus 4.8. Extend the central configuration when Anthropic changes eligibility.
+Claude Fast spends extra-usage credits immediately, so it is disabled by default. Native Fast fields and saved Fast aliases return a clear 400 before inference. The transport support remains available only for an operator who deliberately starts a worker with `STUDIO_CLAUDE_FAST_ENABLED=1`; ordinary Studio activation does not set that flag.
+
+## Happier model discovery
+
+Studio activation sets `STUDIO_CURATED_CATALOG=1`. `/v1/models` then advertises only GPT-6.1 Sol, GPT-6 Astra, Claude Opus 5.5, and Claude Fable 5.1. Requests bearing `anthropic-version` receive the two Claude models with Anthropic-compatible `display_name` and `capabilities.effort` metadata, allowing Happier to render its Thinking selector. API-key access restrictions still apply. This controls discovery, not routing: older sessions and explicit Codex speed aliases remain supported. Speed/effort permutations are no longer advertised as separate models.
+
+Happier's Codex picker uses Codex `model/list`, not `/v1/models`. Generate a matching native catalog with `python3 scripts/studio-codex-catalog.py VERSION /absolute/path/models.json`, then reference it with `model_catalog_json` in the Codex configuration used by the Happier profile. The generator preserves complete official model metadata and uses the same two Codex IDs as the central Studio catalog. Regenerate after upgrading the Codex CLI, and refresh Happier's model list. Existing sessions may retain their original selection.
+
+Changing a discovery catalog does not add a persistent effort badge or Ultrafast switch to Happier. Validate selections through an actual Happier session and the Studio outbound audit. Do not infer runtime support from a model label alone.
 
 ## Account switching and verification
 

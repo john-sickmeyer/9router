@@ -18,6 +18,15 @@ export const CODEX_EFFORTS = {
   "gpt-6-luna": ["low", "medium", "high", "xhigh", "max"],
 };
 export const CLAUDE_FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);
+// Claude Fast spends extra-usage credits immediately. This Studio opts out.
+export const CLAUDE_FAST_ENABLED = process.env.STUDIO_CLAUDE_FAST_ENABLED === "1";
+export const isStudioCuratedCatalogEnabled = () => process.env.STUDIO_CURATED_CATALOG === "1";
+export const STUDIO_VISIBLE_MODELS = [
+  { id: "cx/gpt-6.1-sol", provider: "codex", name: "GPT-6.1 Sol" },
+  { id: "cx/gpt-6-astra", provider: "codex", name: "GPT-6 Astra" },
+  { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
+  { id: "cc/claude-fable-5-1", provider: "claude", name: "Claude Fable 5.1" },
+];
 export const CLAUDE_EFFORTS = {
   "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"],
   "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],

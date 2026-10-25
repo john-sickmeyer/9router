@@ -8,6 +8,7 @@ const fx = vi.hoisted(() => ({
     { id: "c1", name: "Main", models: ["openai/model-a", "openai/model-b"] },
   ],
   keys: {},
+  connections: [],
 }));
 const mocks = vi.hoisted(() => ({
   getProviderCredentials: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock("@/lib/localDb", () => ({
   getComboByName: async (name) => fx.combos.find((c) => c.name === name) || null,
   getProviderNodes: async () => [],
   getCombos: async () => fx.combos,
-  getProviderConnections: async () => [],
+  getProviderConnections: async () => fx.connections,
   getProviderConnectionById: async () => null,
   getCustomModels: async () => [],
 }));
@@ -74,6 +75,8 @@ const post = (path, body, k, extra = {}) => new Request(`http://localhost${path}
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("STUDIO_CURATED_CATALOG", "0");
+  fx.connections = [];
   fx.keys = {
     "sk-open": { id: "o", name: "open", isActive: true, access: { restricted: false, allow: [] } },
     "sk-combo": { id: "c", name: "combo", isActive: true, access: { restricted: true, allow: ["Main"] } },
@@ -209,6 +212,22 @@ describe("video: a body without a readable model is denied for restricted keys",
 
 describe("/v1/models routes filter by key", () => {
   const list = async (k) => (await (await modelsRoute.GET(new Request("http://localhost/v1/models", { headers: auth(k) }))).json()).data.map((m) => m.id);
+
+  it("curates discovery without bypassing key access, and returns Claude effort metadata", async () => {
+    vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
+    fx.connections = [{ provider: "codex", isActive: true }, { provider: "claude", isActive: true }];
+    expect(await list("sk-open")).toEqual(["cx/gpt-6.1-sol", "cx/gpt-6-astra", "cc/claude-opus-5-5", "cc/claude-fable-5-1"]);
+    expect(await list("sk-empty")).toEqual([]);
+    fx.keys["sk-claude"] = { isActive: true, access: { restricted: true, allow: ["cc/claude-opus-5-5"] } };
+    const response = await modelsRoute.GET(new Request("http://localhost/v1/models", {
+      headers: { ...auth("sk-claude"), "anthropic-version": "2023-06-01" },
+    }));
+    const body = await response.json();
+    expect(body.has_more).toBe(false);
+    expect(body.data.map(m => m.id)).toEqual(["cc/claude-opus-5-5"]);
+    expect(body.data[0].capabilities.effort.max.supported).toBe(true);
+    expect(response.headers.get("vary")).toBe("anthropic-version");
+  });
 
   it("unrestricted sees the full catalog; restricted keys see only their entries", async () => {
     const all = await list("sk-open");

@@ -31,9 +31,12 @@ describe("Studio request controls", () => {
   it("keeps explicit client effort over the provider default", () => {
     expect(resolveControls("codex", "gpt-6-astra", { reasoning_effort: "max" }, {}, { mode: "low" }).effort).toBe("max");
   });
-  it("sets Claude native fields and rejects unsupported fast models", () => {
-    const controls = resolveControls("claude", "claude-opus-5", { output_config: { effort: "xhigh" }, speed: "fast" });
-    expect(applyControls({}, controls)).toEqual({ speed: "fast", output_config: { effort: "xhigh" } });
+  it("sets Claude native effort and rejects credit-spending Fast requests", () => {
+    const controls = resolveControls("claude", "claude-opus-5-5", { output_config: { effort: "xhigh" }, speed: "standard" });
+    expect(applyControls({}, controls)).toEqual({ speed: "standard", output_config: { effort: "xhigh" } });
+    expect(() => resolveControls("claude", "claude-opus-5-5", { speed: "fast" })).toThrow(/extra-usage credits/);
+    expect(() => resolveControls("claude", "claude-opus-5-5@fast", {})).toThrow(/extra-usage credits/);
+    expect(() => resolveControls("anthropic", "claude-opus-5-5", {}, { speed: "fast" })).toThrow(/extra-usage credits/);
     expect(() => resolveControls("claude", "claude-opus-4-6", { speed: "fast" })).toThrow();
   });
   it("does not admit a Pro-only or stale account to Ultrafast", () => {
