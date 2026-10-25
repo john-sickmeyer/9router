@@ -64,4 +64,19 @@ describe("Provider confirmation", () => {
     await res.body.cancel();
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ state: "cancelled" }));
   });
+  it("keeps a verified completion when the native client closes its SSE reader", async () => {
+    const audit = vi.fn();
+    const cancel = vi.fn();
+    const upstream = new Response(new ReadableStream({
+      start(c) { c.enqueue(new TextEncoder().encode(done())); },
+      cancel,
+    }), { headers: { "content-type": "text/event-stream" } });
+    const res = await observeControlResponse(upstream, controls, audit);
+    const reader = res.body.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("response.completed");
+    await reader.cancel();
+    await new Promise(resolve => setImmediate(resolve));
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(audit.mock.calls.map(([entry]) => entry.state)).toEqual(["completed"]);
+  });
 });

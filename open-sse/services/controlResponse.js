@@ -11,6 +11,7 @@ export async function observeControlResponse(response, controls, onEvent = async
   let reportedEffort = null;
   let terminal = false;
   let failed = false;
+  let cancelled = false;
   const reject = async (message) => {
     failed = true;
     await onEvent({ state: "failed", reportedTier, reportedEffort, error: message });
@@ -97,13 +98,17 @@ export async function observeControlResponse(response, controls, onEvent = async
         }
         }
       } catch (error) {
+        if (cancelled) return;
         if (!failed) await onEvent({ state: "failed", reportedTier, reportedEffort, error: "Upstream stream interrupted" });
         await reader.cancel().catch(() => {});
         controller.error(error);
       }
     },
     async cancel(reason) {
-      await onEvent({ state: "cancelled", reportedTier, reportedEffort });
+      cancelled = true;
+      // Native Codex closes as soon as it reads response.completed. That is
+      // successful consumption, not a cancelled or interrupted model turn.
+      if (!terminal && !failed) await onEvent({ state: "cancelled", reportedTier, reportedEffort });
       await reader.cancel(reason);
     },
   });
