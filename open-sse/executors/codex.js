@@ -1,3 +1,4 @@
+import { CODEX_EFFORTS, SPEEDS } from "../config/studioControls.js";
 import { BaseExecutor } from "./base.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
@@ -143,11 +144,10 @@ function resolveCacheSessionId(body, credentials) {
 }
 
 function normalizeReasoningEffort(model, value) {
-  const supportedLevels = getThinkingLevels("codex", model);
-  if (supportedLevels?.includes(value)) return value;
-  if (isCodexResponsesLiteModel(model) && (value === "none" || value === "minimal")) return "low";
-  if (value === "ultra" && supportedLevels?.includes("max")) return "max";
-  if (value === "max" || value === "ultra") return "xhigh";
+  const supportedLevels = CODEX_EFFORTS[model] || getThinkingLevels("codex", model);
+  if (value && supportedLevels?.length && !supportedLevels.includes(value)) {
+    throw new Error(`Unsupported effort '${value}' for ${model}`);
+  }
   return value;
 }
 
@@ -503,7 +503,7 @@ export class CodexExecutor extends BaseExecutor {
 
     // Extract thinking level from model name suffix
     // e.g., gpt-5.3-codex-high → high, gpt-5.3-codex → medium (default)
-    const effortLevels = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'];
+    const effortLevels = getThinkingLevels("codex", body.model) || [];
     let modelEffort = null;
     for (const level of effortLevels) {
       if (body.model.endsWith(`-${level}`)) {
@@ -519,7 +519,7 @@ export class CodexExecutor extends BaseExecutor {
       const effort = normalizeReasoningEffort(body.model, body.reasoning_effort || modelEffort || (responsesLite ? 'medium' : 'low'));
       body.reasoning = responsesLite ? { effort } : { effort, summary: "auto" };
     } else {
-      body.reasoning.effort = normalizeReasoningEffort(body.model, body.reasoning.effort);
+      body.reasoning.effort = normalizeReasoningEffort(body.model, body.reasoning.effort || body.reasoning_effort || modelEffort || (responsesLite ? "medium" : "low"));
       if (!responsesLite && !body.reasoning.summary) body.reasoning.summary = "auto";
     }
     if (responsesLite) body.reasoning.context = "all_turns";
@@ -549,8 +549,12 @@ export class CodexExecutor extends BaseExecutor {
     delete body.safety_identifier; // Droid CLI sends this but Codex doesn't support it
     delete body.previous_response_id; // store=false → backend can't resolve previous resp; avoid 404
 
-    if (body.service_tier === "fast") body.service_tier = "priority";
-    if (body.service_tier && body.service_tier !== "priority") delete body.service_tier;
+    if (body.service_tier) {
+      const tier = SPEEDS[body.service_tier];
+      if (!tier) throw new Error(`Unsupported Codex service tier: ${body.service_tier}`);
+      if (tier === "default") delete body.service_tier;
+      else body.service_tier = tier;
+    }
 
     // Final allowlist filter — strip any unknown field that could trigger upstream "routing_unsupported"
     for (const k of Object.keys(body)) {

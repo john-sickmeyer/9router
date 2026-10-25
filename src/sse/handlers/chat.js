@@ -1,4 +1,7 @@
 import "open-sse/index.js";
+import { splitControlModel, resolveControls } from "open-sse/services/studioControls.js";
+import { refreshControlCapabilities } from "@/lib/studio/capabilities.js";
+import { recordControl, isControlDraining } from "@/lib/studio/audit.js";
 
 import {
   getProviderCredentials,
@@ -35,6 +38,7 @@ import { resolveSmartChoice } from "../services/systemoneRouter.js";
  * Format detection and translation handled by translator
  */
 export async function handleChat(request, clientRawRequest = null) {
+  if (isControlDraining()) return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, "9Router is draining for a Studio update. Retry shortly.", { "Retry-After": "30" });
   let body;
   try {
     body = await request.json();
@@ -105,6 +109,7 @@ export async function handleChat(request, clientRawRequest = null) {
   if (bypassResponse) return bypassResponse.response || bypassResponse;
 
   const requiredCapabilities = detectRequiredCapabilities(body);
+  const explicitControls = Boolean(body.service_tier || body.speed || body.reasoning?.effort || body.reasoning_effort || body.output_config?.effort || /[@(]/.test(modelStr));
 
   // Check if model is a combo (has multiple models with fallback)
   const comboModels = await getComboModels(modelStr);
@@ -113,7 +118,7 @@ export async function handleChat(request, clientRawRequest = null) {
     const comboStrategies = settings.comboStrategies || {};
     const comboSpecificStrategy = comboStrategies[modelStr]?.fallbackStrategy;
     const comboStrategy = comboSpecificStrategy || settings.comboStrategy || "fallback";
-    const augmentedModels = await filterAdapterModels(keyAccess, augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, settings), comboModels);
+    const augmentedModels = await filterAdapterModels(keyAccess, (explicitControls ? comboModels : augmentModelsWithCapacityAdapter(comboModels, requiredCapabilities, settings)), comboModels);
     const adapterAdded = augmentedModels.filter((m) => !comboModels.includes(m));
 
     if (comboStrategy === "fusion") {
@@ -167,7 +172,7 @@ export async function handleChat(request, clientRawRequest = null) {
 
   // Single model request — may still switch to a capacity-adapter model if the
   // target lacks a capability the request needs (e.g. no vision, request has an image).
-  const soloAugmented = await filterAdapterModels(keyAccess, augmentModelsWithCapacityAdapter([modelStr], requiredCapabilities, settings), [modelStr]);
+  const soloAugmented = await filterAdapterModels(keyAccess, (explicitControls ? [modelStr] : augmentModelsWithCapacityAdapter([modelStr], requiredCapabilities, settings)), [modelStr]);
   if (soloAugmented.length > 1) {
     const adapterAdded = soloAugmented.filter((m) => m !== modelStr);
     log.info("CHAT", `Capacity adapter for [${[...requiredCapabilities].join(",")}] on "${modelStr}" → trying ${soloAugmented.join(", ")}`);
@@ -191,7 +196,12 @@ export async function handleChat(request, clientRawRequest = null) {
  * Handle single model chat request
  */
 async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null) {
-  const modelInfo = await getModelInfo(modelStr);
+  const requestedControls = splitControlModel(modelStr);
+  // Keep legacy thinking suffixes in model resolution; only strip the speed marker.
+  const resolveName = requestedControls.speed
+    ? requestedControls.model + (requestedControls.effort ? `(${requestedControls.effort})` : "")
+    : modelStr;
+  const modelInfo = await getModelInfo(resolveName);
 
   // If provider is null, this might be a combo name - check and handle
   if (!modelInfo.provider) {
@@ -263,7 +273,20 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
   }
 
-  const { provider, model } = modelInfo;
+  const { provider } = modelInfo;
+  let model = modelInfo.model;
+  const controlSettings = await getSettings();
+  let requestControls;
+  try {
+    requestControls = resolveControls(provider, model, body, requestedControls, controlSettings.providerThinking?.[provider]);
+  } catch (error) {
+    return errorResponse(HTTP_STATUS.BAD_REQUEST, error.message);
+  }
+  if (requestControls) model = requestControls.model;
+  if (requestControls?.provider === "codex" && requestControls.tier && requestControls.tier !== "default") {
+    await refreshControlCapabilities();
+  }
+  const controlRequestId = crypto.randomUUID();
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 
@@ -277,7 +300,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model, requestControls });
+
+    if (credentials?.noEligibleControls) {
+      return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, `No eligible account for ${provider}/${model} at ${requestControls?.tier || "standard"} speed and ${requestControls?.effort || "default"} effort. Refresh account capabilities in Studio controls.`);
+    }
 
     // All accounts unavailable
     if (!credentials || credentials.allRateLimited) {
@@ -312,8 +339,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
     const result = await handleChatCore({
-      body: { ...body, model: `${provider}/${model}` },
+      body: { ...structuredClone(body), model: `${provider}/${model}` },
       modelInfo: { provider, model },
+      requestControls,
+      onControlEvent: requestControls ? (event) => recordControl({
+        requestId: controlRequestId, connectionId: credentials.connectionId,
+        provider, model, requestedTier: requestControls.tier || "default",
+        requestedEffort: requestControls.effort, ...event,
+      }) : null,
       credentials: refreshedCredentials,
       log,
       clientRawRequest,
@@ -357,7 +390,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
-    if (result.success) return result.response;
+    if (result.success) {
+      result.response.headers.set("x-9router-request-id", controlRequestId);
+      if (requestControls) {
+        result.response.headers.set("x-9router-requested-speed", requestControls.tier || "default");
+        if (requestControls.effort) result.response.headers.set("x-9router-requested-effort", requestControls.effort);
+      }
+      return result.response;
+    }
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;

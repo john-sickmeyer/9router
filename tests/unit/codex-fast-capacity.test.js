@@ -12,7 +12,7 @@ function streamFromText(text) {
 }
 
 describe("Codex fast tier and capacity handling", () => {
-  it("maps Codex fast tier to priority and max reasoning to xhigh", () => {
+  it("maps Codex fast tier to priority without changing an unknown model effort", () => {
     const executor = new CodexExecutor();
     const body = executor.transformRequest("gpt-reserve", {
       model: "gpt-reserve",
@@ -22,7 +22,7 @@ describe("Codex fast tier and capacity handling", () => {
     }, true, {});
 
     expect(body.service_tier).toBe("priority");
-    expect(body.reasoning.effort).toBe("xhigh");
+    expect(body.reasoning.effort).toBe("max");
   });
 
   it("uses ChatGPT workspace header fallback", () => {
@@ -77,7 +77,6 @@ describe("Codex reasoning normalization", () => {
     ["gpt-5.6-terra", "max", "max"],
     ["gpt-5.6-terra", "ultra", "ultra"],
     ["gpt-5.6-luna", "max", "max"],
-    ["gpt-5.6-luna", "ultra", "max"],
   ])("normalizes %s effort %s to %s", (model, effort, expected) => {
     const body = new CodexExecutor().transformRequest(model, {
       model,
@@ -86,6 +85,10 @@ describe("Codex reasoning normalization", () => {
     }, true, {});
 
     expect(body.reasoning.effort).toBe(expected);
+  });
+
+  it("rejects unsupported Luna Ultra instead of silently reducing effort", () => {
+    expect(() => new CodexExecutor().transformRequest("gpt-5.6-luna", { input: "hi", reasoning: { effort: "ultra" } }, true, {})).toThrow(/Unsupported effort/);
   });
 
   it("resolves review models before applying the reasoning matrix", () => {

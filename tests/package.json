@@ -6,7 +6,8 @@
   "description": "Unit tests for 9router embeddings endpoint",
   "scripts": {
     "test": "vitest run --reporter=verbose",
-    "test:watch": "vitest --reporter=verbose"
+    "test:watch": "vitest --reporter=verbose",
+    "test:studio": "vitest run unit/studio-*.test.js unit/codex-fast-capacity.test.js unit/codex-gpt6-lite.test.js unit/codex-native-passthrough-thinking.test.js unit/key-access-handlers.test.js unit/account-fallback-4xx.test.js unit/antigravity-quota-routing.test.js"
   },
   "devDependencies": {
     "vitest": "^4.0.0"

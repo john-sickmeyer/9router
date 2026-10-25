@@ -1,3 +1,4 @@
+import { connectionSupportsControls } from "open-sse/services/studioControls.js";
 import { getProviderConnections, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil } from "open-sse/services/accountFallback.js";
@@ -71,7 +72,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       };
     }
 
-    const connections = await getProviderConnections({ provider: providerId, isActive: true });
+    const allConnections = await getProviderConnections({ provider: providerId, isActive: true });
+    const connections = allConnections.filter(c => connectionSupportsControls(c, options.requestControls));
+    if (allConnections.length && !connections.length && options.requestControls) return { noEligibleControls: true };
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {

@@ -1,3 +1,4 @@
+import { assertOutboundControls } from "../services/studioControls.js";
 import { HTTP_STATUS, RETRY_CONFIG, DEFAULT_RETRY_CONFIG, resolveRetryEntry, FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { shouldRefreshCredentials } from "../services/oauthCredentialManager.js";
 import { proxyAwareFetch } from "../utils/proxyFetch.js";
@@ -127,6 +128,7 @@ export class BaseExecutor {
     for (let urlIndex = 0; urlIndex < fallbackCount; urlIndex++) {
       const url = this.buildUrl(model, stream, urlIndex, credentials);
       const transformedBody = this.transformRequest(model, body, stream, credentials);
+      assertOutboundControls(transformedBody, credentials?.studioControls);
       const headers = this.buildHeaders(credentials, stream, url, model, transformedBody);
       // User per-provider override wins over registry headers (blocked names filtered at the API)
       if (providerOverrides?.headers) Object.assign(headers, providerOverrides.headers);

@@ -102,3 +102,7 @@ graphify-out/*
 start-dev-silent.cjs
 debug.log
 .scratch/
+
+# Pin reproducible Studio builds
+!/package-lock.json
+!/tests/package-lock.json

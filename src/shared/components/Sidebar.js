@@ -18,6 +18,7 @@ const VISIBLE_MEDIA_KINDS = ["embedding", "image", "video", "tts", "stt", "syste
 const COMBINED_WEB_ITEM = { id: "web", label: "Web Fetch & Search", icon: "travel_explore", href: "/dashboard/media-providers/web" };
 
 const navItems = [
+  { href: "/dashboard/studio", label: "Studio controls", icon: "speed" },
   { href: "/dashboard/endpoint", label: "Endpoint & Key", icon: "api" },
   { href: "/dashboard/providers", label: "Providers", icon: "dns" },
   // { href: "/dashboard/basic-chat", label: "Basic Chat", icon: "chat" }, // Hidden
@@ -58,16 +59,7 @@ export default function Sidebar({ onClose }) {
     });
   }, []);
 
-  // Lazy check for new npm version in background after initial render
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      fetch("/api/version")
-        .then(res => res.json())
-        .then(data => { if (data.hasUpdate) setUpdateInfo(data); })
-        .catch(() => {});
-    }, 2500);
-    return () => clearTimeout(timer);
-  }, []);
+  // Studio releases are updated through the staged Git workflow (STUDIO.md).
 
   const isActive = (href) => {
     if (href === "/dashboard/endpoint") {

@@ -1,3 +1,4 @@
+import { expandControlModels } from "open-sse/services/studioControls.js";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
   ALIAS_TO_ID,
@@ -666,7 +667,7 @@ export async function GET(request) {
     const skipDynamicFetch = request?.headers?.get(INTERNAL_MODELS_FETCH_HEADER) === "1";
     const data = await filterModelsListForKey(
       await getKeyAccessContext(request),
-      await buildModelsList([LLM_KIND], { skipDynamicFetch })
+      expandControlModels(await buildModelsList([LLM_KIND], { skipDynamicFetch }), await getProviderConnections({ isActive: true }))
     );
     return Response.json({ object: "list", data }, {
       headers: { "Access-Control-Allow-Origin": "*" },

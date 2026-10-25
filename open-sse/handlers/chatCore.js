@@ -1,3 +1,5 @@
+import { applyControls } from "../services/studioControls.js";
+import { observeControlResponse } from "../services/controlResponse.js";
 import { detectFormat, getTargetFormat, resolveTransport } from "../services/provider.js";
 import { translateRequest } from "../translator/index.js";
 import { applyThinking, extractThinking, stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
@@ -61,7 +63,7 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides, requestControls, onControlEvent }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -121,7 +123,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       body = { ...body, thinking: { type: "enabled", budget_tokens: 10000 } };
     } else if (mode === "off" && !body.thinking) {
       body = { ...body, thinking: { type: "disabled" } };
-    } else if (!body.reasoning_effort) {
+    } else if (!body.reasoning_effort && !body.reasoning?.effort && !body.output_config?.effort && !requestControls?.effort) {
       body = { ...body, reasoning_effort: mode };
     }
   }
@@ -226,6 +228,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     translatedBody.model = stripThinkingSuffix(upstreamModel);
     stripContinuityFields(translatedBody);
   }
+
+  applyControls(translatedBody, requestControls);
 
   // Tool normalization: MCP-equivalent built-in dedup (Claude clients) + same-name
   // dedup for DeepSeek models (upstream rejects duplicate tool names on all endpoints).
@@ -387,6 +391,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     log?.debug?.("PROXY", `${provider.toUpperCase()} | ${model} | conn=${connectionName} | no_proxy=${proxyOptions.connectionNoProxy}`);
   }
 
+  if (credentials && requestControls) credentials.studioControls = requestControls;
+
   // Execute request
   let providerResponse, providerUrl, providerHeaders, finalBody;
   // Most executors return their registry format. Cursor AgentService is an
@@ -409,6 +415,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     providerUrl = result.url;
     providerHeaders = result.headers;
     finalBody = result.transformedBody;
+    await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null });
     providerResponseFormat = result.responseFormat || targetFormat;
     const renamedToolNames = takeRenamedToolNames(translatedBody);
     if (renamedToolNames?.size) {
@@ -416,6 +423,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
     reqLogger.logTargetRequest(providerUrl, providerHeaders, finalBody);
   } catch (error) {
+    await onControlEvent?.({ state: "failed", error: "Request execution failed" });
     trackPendingRequest(model, provider, connectionId, false, true);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${error.name === "AbortError" ? 499 : HTTP_STATUS.BAD_GATEWAY}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
@@ -476,6 +484,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
           });
           if (retryResult.response.ok) {
             providerResponse = retryResult.response;
+            finalBody = retryResult.transformedBody;
+            await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null });
             providerUrl = retryResult.url;
             providerResponseFormat = retryResult.responseFormat || targetFormat;
           }
@@ -490,6 +500,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Provider returned error
   if (!providerResponse.ok) {
+    await onControlEvent?.({ state: "failed", status: providerResponse.status });
     trackPendingRequest(model, provider, connectionId, false, true);
     const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
@@ -511,6 +522,13 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
     return createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers));
+  }
+
+  try {
+    providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined);
+  } catch (error) {
+    trackPendingRequest(model, provider, connectionId, false, true);
+    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message);
   }
 
   const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
