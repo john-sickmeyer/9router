@@ -172,12 +172,10 @@ describe("Codex GPT-6 Sol/Luna transport", () => {
     }, true, credentials)).toThrow(/Unsupported effort/);
   });
 
-  it("preserves GPT-6.1 Sol's supported ultra effort", () => {
-    const body = new CodexExecutor().transformRequest("gpt-6.1-sol", {
+  it("rejects raw Ultra because orchestration belongs to the native runtime", () => {
+    expect(() => new CodexExecutor().transformRequest("gpt-6.1-sol", {
       model: "gpt-6.1-sol", input: "hello", reasoning: { effort: "ultra" },
-    }, true, credentials);
-
-    expect(body.reasoning).toEqual({ effort: "ultra", context: "all_turns" });
+    }, true, credentials)).toThrow(/runtime orchestration mode/);
   });
 
   it("sends the Lite shape and header in the actual outbound request", async () => {

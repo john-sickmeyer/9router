@@ -1,4 +1,4 @@
-import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, SPEED_NAMES, CAPABILITY_TTL_MS } from "../config/studioControls.js";
+import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, SPEED_NAMES, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 
 export class ControlError extends Error {
@@ -25,7 +25,8 @@ function choose(values, label) {
 }
 
 export function effortLevels(provider, model) {
-  return (provider === "codex" ? CODEX_EFFORTS[model] : CLAUDE_EFFORTS[model]) || getThinkingLevels(provider, model) || [];
+  const levels = (provider === "codex" ? CODEX_EFFORTS[model] : CLAUDE_EFFORTS[model]) || getThinkingLevels(provider, model) || [];
+  return provider === "codex" ? levels.filter(e => !CODEX_RUNTIME_ONLY_EFFORTS.has(e)) : levels;
 }
 
 export function resolveControls(provider, model, body, requested = {}, providerThinking = null) {
@@ -48,6 +49,7 @@ export function resolveControls(provider, model, body, requested = {}, providerT
     return null;
   }
   if (!effort && providerThinking?.mode && !["auto", "on", "off"].includes(providerThinking.mode)) effort = providerThinking.mode;
+  if (isCodex && CODEX_RUNTIME_ONLY_EFFORTS.has(effort)) throw new ControlError(CODEX_RUNTIME_EFFORT_ERROR);
   const levels = effortLevels(provider, base);
   if (effort && !levels.includes(effort)) throw new ControlError(`Unsupported effort '${effort}' for ${base}. Supported: ${levels.join(", ") || "none"}`);
   return { provider, model: base, tier, effort };

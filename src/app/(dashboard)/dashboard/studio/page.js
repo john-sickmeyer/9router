@@ -44,6 +44,7 @@ export default function StudioControls() {
       </div>
       <div className="flex flex-wrap gap-3 items-center"><code className="bg-bg-subtle p-3 rounded break-all">{alias}</code><button className="border border-border rounded px-4 py-2" onClick={async () => { try { await navigator.clipboard.writeText(alias); setMessage("Model name copied."); } catch { setMessage("Select and copy the model name above."); } }}>Copy model name</button></div>
       <p className="text-sm text-text-muted">If your client sends an explicit effort too, use the same value. Conflicting choices return an error. Claude Fast requires provider eligibility and usage credits; a successful connection alone does not confirm Fast.</p>
+      <p className="text-sm text-text-muted">Codex Ultra effort is an orchestration mode selected in a compatible native client. Router aliases offer API effort through Max. Ultrafast is a separate speed choice.</p>
       <p className="text-sm text-amber-600">Codex can report “default” even when accelerated requests run faster. Such requests are marked unconfirmed below: the selected controls were sent, but the provider did not confirm the served or billed tier.</p>
     </section>
     <section className="space-y-3">

@@ -16,11 +16,13 @@ Clients without separate controls can select a model alias from `/v1/models`, or
 ```
 cx/gpt-6-astra@ultrafast(max)
 cx/gpt-6.1-sol@fast(high)
-cx/gpt-6-sol@standard(ultra)
+cx/gpt-6-sol@standard(max)
 cc/claude-opus-5@fast(xhigh)
 ```
 
-An alias without parentheses selects speed while leaving effort to the client's request. This is useful with `/effort`. An alias with parentheses pins effort: a conflicting client field returns HTTP 400. Unsupported effort is rejected rather than reduced. `ultra` effort is distinct from `ultrafast` speed. Claude does not have an Ultrafast mode.
+An alias without parentheses selects speed while leaving effort to the client's request. This is useful with `/effort`. An alias with parentheses pins effort: a conflicting client field returns HTTP 400. Unsupported effort is rejected rather than reduced. Claude does not have an Ultrafast mode.
+
+**Ultra effort is not an API reasoning level.** It enables orchestration in a compatible Codex runtime, which [resolves it to the model's ordinary inference effort](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/openai_models/reasoning_effort.rs). Select that mode in the native client; 9Router cannot create the client-side orchestration merely by forwarding the word `ultra`. Raw Ultra effort and aliases such as `(ultra)` return an explanatory 400. For these router aliases, GPT-6 efforts are Low, Medium, High, Xhigh, and Max. **Ultrafast speed works independently of this distinction.**
 
 Fast/Ultrafast choices depend on model and account eligibility. The fork reads Codex's account-specific model catalog and usage plan, caches that metadata for six hours, and refreshes stale metadata before accelerated requests. A manual **Refresh capabilities** button is also available. A catalog refresh does not purchase credits or change subscriptions. Failed/stale capability checks exclude the account from accelerated requests until refreshed.
 

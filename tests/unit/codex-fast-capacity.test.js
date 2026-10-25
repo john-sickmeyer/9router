@@ -73,9 +73,7 @@ describe("Codex fast tier and capacity handling", () => {
 describe("Codex reasoning normalization", () => {
   it.each([
     ["gpt-5.6-sol", "max", "max"],
-    ["gpt-5.6-sol", "ultra", "ultra"],
     ["gpt-5.6-terra", "max", "max"],
-    ["gpt-5.6-terra", "ultra", "ultra"],
     ["gpt-5.6-luna", "max", "max"],
   ])("normalizes %s effort %s to %s", (model, effort, expected) => {
     const body = new CodexExecutor().transformRequest(model, {
@@ -95,10 +93,10 @@ describe("Codex reasoning normalization", () => {
     const body = new CodexExecutor().transformRequest("gpt-5.6-terra-review", {
       model: "gpt-5.6-terra-review",
       input: "hi",
-      reasoning_effort: "ultra",
+      reasoning_effort: "max",
     }, true, {});
 
     expect(body.model).toBe("gpt-5.6-terra");
-    expect(body.reasoning.effort).toBe("ultra");
+    expect(body.reasoning.effort).toBe("max");
   });
 });

@@ -4,7 +4,7 @@ import { CodexExecutor } from "../../open-sse/executors/codex.js";
 
 const capable = (tiers) => ({ provider: "codex", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers, efforts: ["max", "ultra"] } } } } });
 describe("Studio request controls", () => {
-  it.each(["low", "medium", "high", "xhigh", "max", "ultra"])("preserves %s through alias resolution and the real executor", effort => {
+  it.each(["low", "medium", "high", "xhigh", "max"])("preserves %s through alias resolution and the real executor", effort => {
     const parsed = splitControlModel(`cx/gpt-6-astra@ultrafast(${effort})`);
     const controls = resolveControls("codex", "gpt-6-astra", {}, parsed);
     const body = new CodexExecutor().transformRequest("gpt-6-astra", applyControls({ input: "hi" }, controls), true, {});
@@ -25,8 +25,8 @@ describe("Studio request controls", () => {
   ])("rejects conflicting or invalid controls", (body, alias) => {
     expect(() => resolveControls("codex", "gpt-6-astra", body, alias)).toThrow();
   });
-  it("rejects unsupported Ultra instead of changing it to Max", () => {
-    expect(() => resolveControls("codex", "gpt-6-luna", { reasoning_effort: "ultra" })).toThrow(/Unsupported effort/);
+  it.each(["gpt-6-luna", "gpt-6-astra", "gpt-6.1-sol"])("explains native Ultra orchestration for %s instead of silently mapping effort", model => {
+    expect(() => resolveControls("codex", model, { reasoning_effort: "ultra" })).toThrow(/runtime orchestration mode/);
   });
   it("keeps explicit client effort over the provider default", () => {
     expect(resolveControls("codex", "gpt-6-astra", { reasoning_effort: "max" }, {}, { mode: "low" }).effort).toBe("max");

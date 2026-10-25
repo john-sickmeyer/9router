@@ -5,14 +5,16 @@ export const CAPABILITY_TTL_MS = 6 * 60 * 60 * 1000;
 export const CODEX_CATALOG_VERSION = "0.163.0";
 export const CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint";
 export const CODEX_UNCONFIRMED_SPEED_WARNING = "Codex did not confirm the served speed. Its ChatGPT endpoint can report default even when acceleration is observed; this is not proof of a downgrade or the billed tier.";
+export const CODEX_RUNTIME_ONLY_EFFORTS = new Set(["ultra"]);
+export const CODEX_RUNTIME_EFFORT_ERROR = "Unsupported effort 'ultra' on the inference API. Ultra is a Codex runtime orchestration mode; select it in a compatible native client. For a router model alias, choose an API effort such as max. Ultrafast speed is supported separately.";
 export const CODEX_CATALOG_URL = `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CATALOG_VERSION}`;
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 export const CONTROL_PROVIDERS = new Set(["codex", "claude", "anthropic"]);
 export const SPEEDS = { standard: "default", default: "default", auto: "default", fast: "priority", priority: "priority", ultrafast: "ultrafast" };
 export const CODEX_EFFORTS = {
-  "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max", "ultra"],
-  "gpt-6-astra": ["low", "medium", "high", "xhigh", "max", "ultra"],
-  "gpt-6-sol": ["low", "medium", "high", "xhigh", "max", "ultra"],
+  "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6-sol": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6-luna": ["low", "medium", "high", "xhigh", "max"],
 };
 export const CLAUDE_FAST_MODELS = new Set(["claude-opus-5-5", "claude-opus-5", "claude-opus-4-8"]);

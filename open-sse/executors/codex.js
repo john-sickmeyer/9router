@@ -1,4 +1,4 @@
-import { CODEX_EFFORTS, SPEEDS, CODEX_ROUTING_HINT_HEADER } from "../config/studioControls.js";
+import { CODEX_EFFORTS, SPEEDS, CODEX_ROUTING_HINT_HEADER, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { BaseExecutor } from "./base.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
@@ -144,6 +144,7 @@ function resolveCacheSessionId(body, credentials) {
 }
 
 function normalizeReasoningEffort(model, value) {
+  if (CODEX_RUNTIME_ONLY_EFFORTS.has(value)) throw new Error(CODEX_RUNTIME_EFFORT_ERROR);
   const supportedLevels = CODEX_EFFORTS[model] || getThinkingLevels("codex", model);
   if (value && supportedLevels?.length && !supportedLevels.includes(value)) {
     throw new Error(`Unsupported effort '${value}' for ${model}`);
