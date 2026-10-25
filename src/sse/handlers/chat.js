@@ -1,5 +1,5 @@
 import "open-sse/index.js";
-import { splitControlModel, resolveControls } from "open-sse/services/studioControls.js";
+import { splitControlModel, resolveControls, controlLockKey } from "open-sse/services/studioControls.js";
 import { refreshControlCapabilities } from "@/lib/studio/capabilities.js";
 import { recordControl, isControlDraining } from "@/lib/studio/audit.js";
 
@@ -338,7 +338,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Use shared chatCore
     const chatSettings = await getSettings();
     const providerThinking = (chatSettings.providerThinking || {})[provider] || null;
-    const result = await handleChatCore({
+    let result;
+    try {
+    result = await handleChatCore({
       body: { ...structuredClone(body), model: `${provider}/${model}` },
       modelInfo: { provider, model },
       requestControls,
@@ -384,11 +386,16 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         });
       },
       onRequestSuccess: async () => {
-        await clearAccountError(credentials.connectionId, credentials, model);
+        await clearAccountError(credentials.connectionId, credentials, controlLockKey(model, requestControls));
         // "Consecutive" strikes: a success clears the breaker for this pair.
         clearAntigravityStrikes(credentials.connectionId, model);
       }
     });
+
+    } catch (error) {
+      if (requestControls) await recordControl({ requestId: controlRequestId, connectionId: credentials.connectionId, provider, model, state: "failed", error: "Request preparation failed" });
+      return errorResponse(HTTP_STATUS.BAD_GATEWAY, "Failed to prepare provider request");
+    }
 
     if (result.success) {
       result.response.headers.set("x-9router-request-id", controlRequestId);
@@ -414,7 +421,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Do not persist a modelLock_* for this path.
     const shouldFallback = provider === "antigravity" && quotaResetMs
       ? true
-      : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, resetsAtMs)).shouldFallback;
+      : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, controlLockKey(model, requestControls), resetsAtMs)).shouldFallback;
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);

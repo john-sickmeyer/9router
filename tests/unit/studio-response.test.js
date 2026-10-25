@@ -8,6 +8,14 @@ function stream(text, width = 7) {
   return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += width) c.enqueue(bytes.slice(i, i + width)); c.close(); } }), { headers: { "content-type": "text/event-stream" } });
 }
 describe("Provider confirmation", () => {
+  it.each([null, "application/json", "text/plain"])("recognizes forced Codex SSE with content-type %s", async contentType => {
+    const response = stream(done());
+    if (contentType) response.headers.set("content-type", contentType);
+    else response.headers.delete("content-type");
+    const observed = await observeControlResponse(response, controls);
+    expect(await observed.text()).toContain("response.completed");
+    expect(observed.headers.get("content-type")).toBe("text/event-stream");
+  });
   it("preserves tool arguments across chunk/UTF-8 boundaries and verifies completion", async () => {
     const audit = vi.fn();
     const tool = event("response.function_call_arguments.delta", { delta: '{"city":"東京"}' });

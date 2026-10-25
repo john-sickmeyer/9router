@@ -39,7 +39,9 @@ export async function observeControlResponse(response, controls, onEvent = async
       await complete();
     }
   };
-  if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+  // Codex forces SSE, including when its gateway omits/mislabels content-type.
+  // Match the existing Responses converter's transport rule, not just the header.
+  if (!codex && !response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
     const text = await response.text();
     try { await inspect(JSON.parse(text)); if (!terminal) await complete(); }
     catch (error) { if (!failed) await reject("Invalid upstream JSON response"); throw error; }
@@ -102,5 +104,7 @@ export async function observeControlResponse(response, controls, onEvent = async
       await reader.cancel(reason);
     },
   });
-  return new Response(stream, { status: response.status, headers: response.headers });
+  const headers = new Headers(response.headers);
+  headers.set("content-type", "text/event-stream");
+  return new Response(stream, { status: response.status, headers });
 }

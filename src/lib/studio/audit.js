@@ -14,8 +14,8 @@ export function isControlDraining() {
 export async function recordControl(event) {
   const entry = { time: new Date().toISOString(), ...event };
   const key = `${entry.requestId}:${entry.connectionId}`;
-  if (entry.state === "outbound") state.pending.set(key, entry);
-  else if (["completed", "failed", "cancelled"].includes(entry.state)) state.pending.delete(key);
+  if (["started", "outbound"].includes(entry.state)) state.pending.set(key, entry);
+  else if (["completed", "failed", "cancelled", "bypassed"].includes(entry.state)) state.pending.delete(key);
   const write = async () => {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const stat = await fs.stat(file).catch(() => null);

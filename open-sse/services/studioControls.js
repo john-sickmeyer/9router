@@ -77,6 +77,10 @@ export function assertOutboundControls(body, controls) {
   if (controls.effort && effort !== controls.effort) throw new ControlError("Outbound effort differs from the requested effort");
 }
 
+export function controlLockKey(model, controls) {
+  return controls?.tier && controls.tier !== "default" ? `${model}@${controls.tier}` : model;
+}
+
 export function connectionSupportsControls(connection, controls, now = Date.now()) {
   if (!controls || controls.provider !== "codex") return true;
   const catalog = connection.providerSpecificData?.studioCapabilities;

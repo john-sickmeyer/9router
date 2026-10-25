@@ -4,6 +4,7 @@ vi.mock("@/lib/localDb", () => db);
 vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: async () => ({}), pickProxyPoolId: vi.fn() }));
 vi.mock("@/sse/utils/logger.js", () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn() }));
 const { getProviderCredentials, markAccountUnavailable } = await import("@/sse/services/auth.js");
+const { controlLockKey } = await import("../../open-sse/services/studioControls.js");
 const model = "gpt-6-astra";
 const requestControls = { provider: "codex", model, tier: "ultrafast", effort: "max" };
 const account = (id, tiers) => ({ id, provider: "codex", isActive: true, providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { [model]: { tiers, efforts: ["max"] } } } } });
@@ -14,6 +15,12 @@ beforeEach(() => {
   db.updateProviderConnection.mockImplementation(async (id, update) => Object.assign(accounts.find(c => c.id === id), update));
 });
 describe("eligible account rotation", () => {
+  it("does not let an accelerated-tier limit block Standard", async () => {
+    accounts = accounts.slice(1);
+    await markAccountUnavailable("max1", 429, "Fast capacity limit", "codex", controlLockKey(model, requestControls));
+    expect((await getProviderCredentials("codex", null, model, { requestControls })).connectionId).toBe("max2");
+    expect((await getProviderCredentials("codex", null, model, { requestControls: { ...requestControls, tier: "default" } })).connectionId).toBe("max1");
+  });
   it("switches after a real quota lock, retains controls and never chooses a Pro-only account", async () => {
     const first = await getProviderCredentials("codex", null, model, { requestControls });
     expect(first.connectionId).toBe("max1");
