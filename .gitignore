@@ -106,3 +106,4 @@ debug.log
 # Pin reproducible Studio builds
 !/package-lock.json
 !/tests/package-lock.json
+__pycache__/

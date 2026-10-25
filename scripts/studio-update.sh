@@ -6,6 +6,10 @@ cd "$repo"
 test -z "$(git status --porcelain)" || { echo 'Commit or stash source changes first.'; exit 1; }
 git fetch origin studio
 git fetch upstream master
+if git merge-base --is-ancestor upstream/master origin/studio; then
+  echo 'Studio already contains the current upstream master. No service changes.'
+  exit 0
+fi
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 candidate="${repo}-candidate-${stamp}"
 branch="upstream-review/${stamp}"

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Run on the Studio. Stage immutable builds; activate with drain/backup/rollback."""
-import argparse, base64, hashlib, hmac, json, os, pathlib, plistlib, shutil, sqlite3, subprocess, time, urllib.request
+import argparse, base64, fcntl, hashlib, hmac, json, os, pathlib, plistlib, shutil, sqlite3, subprocess, time, urllib.request
 
 ROOT = pathlib.Path.home() / 'Library/Application Support/9router-studio'
 DATA = pathlib.Path.home() / '.9router'
@@ -136,7 +136,12 @@ def main():
     sub.add_parser('status')
     args = parser.parse_args()
     if args.command == 'stage': stage(args.source)
-    elif args.command == 'activate': activate(args.revision, args.migrate_stock)
+    elif args.command == 'activate':
+        ROOT.mkdir(parents=True, exist_ok=True)
+        with (ROOT / 'release.lock').open('w') as lock:
+            try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError: raise RuntimeError('Another release operation is already running')
+            activate(args.revision, args.migrate_stock)
     else: print(json.dumps(status(), indent=2))
 
 if __name__ == '__main__': main()

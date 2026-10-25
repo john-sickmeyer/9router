@@ -1,3 +1,5 @@
+> **Studio fork:** Speed/effort controls, eligible account failover, and protected upstream updates are documented in [STUDIO.md](STUDIO.md). Custom releases use the `studio` branch; `master` tracks the original project.
+
 <div align="center">
   <img src="./images/9router.png?1" alt="9Router Dashboard" width="800"/>
   

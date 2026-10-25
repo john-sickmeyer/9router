@@ -1,5 +1,5 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false }));
+const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null }));
 vi.mock("@/lib/localDb", () => ({
   getSettings: async () => ({ requireApiKey: false, providerThinking: { codex: { mode: "low" } } }),
   getProviderConnections: async () => fx.accounts,
@@ -24,16 +24,26 @@ vi.mock("../../open-sse/executors/index.js", async () => {
     assertOutboundControls(body, args.credentials.studioControls);
     fx.sent.push({ account: args.credentials.connectionId, body: structuredClone(body) });
     if (fx.failFirst && fx.sent.length === 1) return { transformedBody: body, response: Response.json({ error: { message: "Rate limit reached" } }, { status: 429 }) };
-    const payload = { type: "response.completed", response: { id: "test", status: "completed", service_tier: body.service_tier, reasoning: body.reasoning, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 1, output_tokens: 1 } } };
+    const payload = { type: "response.completed", response: { id: "test", status: "completed", service_tier: fx.reportedTier || body.service_tier, reasoning: body.reasoning, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 1, output_tokens: 1 } } };
     return { transformedBody: body, response: new Response(`data: ${JSON.stringify(payload)}\n\n`, { headers: { "content-type": "text/event-stream" } }) };
   } }) };
 });
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 beforeEach(() => {
-  fx.sent = []; fx.events = []; fx.failFirst = false;
+  fx.sent = []; fx.events = []; fx.failFirst = false; fx.reportedTier = null;
   fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers: ["ultrafast"], efforts: ["max", "ultra"] } } } } }));
 });
 describe("Studio client-to-provider pipeline", () => {
+  it("surfaces a provider downgrade as failure through the full JSON handler", async () => {
+    fx.reportedTier = "priority";
+    const response = await handleChat(new Request("http://localhost/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "cx/gpt-6-astra@ultrafast(max)", input: "hi", stream: false }),
+    }));
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(fx.events.some(e => e.state === "completed")).toBe(false);
+  });
+
   it.each(["responses", "chat/completions"])("preserves controls and conversation through a 429 on /%s", async endpoint => {
     fx.failFirst = true;
     const body = { model: "cx/gpt-6-astra@ultrafast(max)", stream: false,
