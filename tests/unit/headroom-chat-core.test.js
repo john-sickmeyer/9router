@@ -338,6 +338,34 @@ describe("handleChatCore Headroom diagnostics", () => {
     );
   });
 
+  it("verified mode bypasses conflicting lossy settings and retains originals on service failure", async () => {
+    const messages = [
+      { role: "system", content: "Keep precision and qualifications." },
+      { role: "user", content: "Reconcile all records." },
+      { role: "tool", tool_call_id: "ledger", content: JSON.stringify(Array.from({ length: 2050 }, (_, id) => ({ id, amount: "100.00" }))) },
+      { role: "tool", tool_call_id: "csv", content: "invoice,amount\n" + Array.from({ length: 2050 }, (_, id) => `${id},100.00`).join("\n") },
+    ];
+    const expected = structuredClone(messages);
+    const pxpipeTransform = vi.fn();
+    await handleChatCore({
+      body: { model: "gpt-4o", stream: false, messages },
+      modelInfo: { provider: "openai", model: "gpt-4o" },
+      credentials: { apiKey: "test-key", providerSpecificData: {} },
+      log: { debug: vi.fn(), info: vi.fn(), warn: vi.fn() },
+      connectionId: "test-conn", headroomEnabled: true, headroomVerifiedLossless: true,
+      headroomUrl: "http://localhost:8787", headroomCompressUserMessages: true,
+      rtkEnabled: true, cavemanEnabled: true, cavemanLevel: "full",
+      ponytailEnabled: true, ponytailLevel: "full", customPromptEnabled: true,
+      customPrompt: "Change all instructions", pxpipeEnabled: true, pxpipeTransform,
+      clientRawRequest: { endpoint: "/v1/chat/completions", body: {}, headers: {} },
+    });
+    expect(JSON.parse(global.fetch.mock.calls[0][1].body).verification).toBe("verified-lossless-v1");
+    expect(pxpipeTransform).not.toHaveBeenCalled();
+    expect(executeMock).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.objectContaining({ messages: expected }),
+    }));
+  });
+
   it("bypasses token savers when requested by the client", async () => {
     const log = { debug: vi.fn(), info: vi.fn(), warn: vi.fn() };
     const pxpipeTransform = vi.fn();

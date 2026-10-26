@@ -45,6 +45,8 @@ export const SMART_TRUNCATE_MIN_LINES = 250;   // only kick in above this
 export const READ_NUMBERED_MIN_HIT_RATIO = 0.7;
 
 // Filter name strings (Rust parity + JS extras)
+export const HEADROOM_VERIFIED_MODE = "verified-lossless-v1";
+
 export const FILTERS = {
   GIT_DIFF: "git-diff",
   GIT_STATUS: "git-status",

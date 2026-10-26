@@ -6,6 +6,7 @@ export default function Toggle({
   checked = false,
   onChange,
   label,
+  ariaLabel,
   description,
   disabled = false,
   size = "md",
@@ -33,6 +34,7 @@ export default function Toggle({
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={ariaLabel || label}
         disabled={disabled}
         onClick={handleClick}
         className={cn(

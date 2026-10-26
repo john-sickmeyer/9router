@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { claudeToOpenAIRequest } from "../translator/request/claude-to-openai.js";
 import { openaiToClaudeRequest } from "../translator/request/openai-to-claude.js";
 import { FORMATS } from "../translator/formats.js";
-import { ROLE, OPENAI_BLOCK, COMMANDCODE_BLOCK, RESPONSES_ITEM } from "../translator/schema/index.js";
-import { HEADROOM_TOOL_OUTPUT_MAX_DEPTH } from "./constants.js";
+import { ROLE, OPENAI_BLOCK, CLAUDE_BLOCK, COMMANDCODE_BLOCK, RESPONSES_ITEM } from "../translator/schema/index.js";
+import { HEADROOM_TOOL_OUTPUT_MAX_DEPTH, HEADROOM_VERIFIED_MODE } from "./constants.js";
 import {
   openaiResponsesToOpenAIRequest,
   openaiToOpenAIResponsesRequest,
@@ -106,9 +107,9 @@ function hasUnsafeResponsesInputForCompression(body) {
   });
 }
 
-// Project only plain tool-output leaves. Keep protocol items and structured
-// payloads in their native format instead of round-tripping the conversation.
-function collectToolOutputText(body, format) {
+// Project tool text only (JSON arrays in verified mode). Keep native protocol
+// items instead of round-tripping the conversation through a translator.
+function collectToolOutputText(body, format, verified = false) {
   const messages = [];
   const targets = [];
   const visit = (object, key, depth = 0) => {
@@ -116,7 +117,12 @@ function collectToolOutputText(body, format) {
     const value = object?.[key];
     if (typeof value === "string") {
       if (!value.trim()) return;
-      try { JSON.parse(value); return; } catch { /* plain text */ }
+      if (verified) {
+        // No JSON.parse here: it rounds large integers before verification.
+        if (!value.trimStart().startsWith("[")) return;
+      } else {
+        try { JSON.parse(value); return; } catch { /* plain text */ }
+      }
       messages.push({ role: ROLE.TOOL, tool_call_id: `headroom-tool-${messages.length}`, content: value });
       targets.push({ object, key, text: value });
     } else if (Array.isArray(value)) {
@@ -129,9 +135,10 @@ function collectToolOutputText(body, format) {
     }
   };
 
-  if (format === FORMATS.OPENAI_RESPONSES && hasUnsafeResponsesInputForCompression(body)) {
-    for (const item of body.input) {
-      if (item?.type === RESPONSES_ITEM.FUNCTION_CALL_OUTPUT) visit(item, "output");
+  if (format === FORMATS.OPENAI_RESPONSES && (verified || hasUnsafeResponsesInputForCompression(body))) {
+    for (const item of body.input || []) {
+      if (item?.type === RESPONSES_ITEM.FUNCTION_CALL_OUTPUT
+        || (verified && item?.type === RESPONSES_ITEM.CUSTOM_TOOL_CALL_OUTPUT)) visit(item, "output");
     }
   } else if ([FORMATS.GEMINI, FORMATS.GEMINI_CLI, FORMATS.ANTIGRAVITY, FORMATS.VERTEX].includes(format)) {
     const contents = body.request?.contents || body.contents;
@@ -142,10 +149,40 @@ function collectToolOutputText(body, format) {
         if (part?.functionResponse) visit(part.functionResponse, "response");
       }
     }
+  } else if (verified && [FORMATS.KIRO, FORMATS.COMMANDCODE].includes(format)) {
+    const projection = format === FORMATS.KIRO
+      ? collectKiroHeadroomMessages(body) : collectCommandCodeHeadroomMessages(body);
+    projection?.messages.forEach((message, i) => {
+      const target = projection.targets[i];
+      if (message.role === ROLE.TOOL && target) visit(target.object, target.key);
+    });
+  } else if (verified) {
+    for (const message of body.messages || []) {
+      if (message?.role === ROLE.TOOL) visit(message, "content");
+      if (message?.role === ROLE.USER && Array.isArray(message.content)) {
+        for (const part of message.content) {
+          if (part?.type === CLAUDE_BLOCK.TOOL_RESULT) visit(part, "content");
+        }
+      }
+    }
   } else {
     return null;
   }
   return { messages, targets };
+}
+
+function verifyToolOutputResponse(projection, data) {
+  if (data?.verification !== HEADROOM_VERIFIED_MODE || data.lossless !== true
+    || data.proofs?.length !== projection.messages.length
+    || data.messages?.length !== projection.messages.length) return false;
+  const digest = (text) => createHash("sha256").update(text).digest("hex");
+  return projection.messages.every((message, i) => {
+    const actual = data.messages[i];
+    const proof = data.proofs[i];
+    return typeof actual?.content === "string"
+      && proof?.original_sha256 === digest(message.content)
+      && proof?.compressed_sha256 === digest(actual.content);
+  });
 }
 
 function applyToolOutputText(projection, messages, diagnostics) {
@@ -324,10 +361,11 @@ function applyProjectedHeadroomMessages(projection, compressedMessages, diagnost
 }
 
 // POST messages to Headroom /v1/compress; returns compressed messages + stats or null.
-async function callCompress(url, messages, model, timeoutMs, compressUserMessages, diagnostics) {
+async function callCompress(url, messages, model, timeoutMs, compressUserMessages, diagnostics, verified = false) {
   const endpoint = buildCompressEndpoint(url);
   diagnostics.endpoint = maskEndpoint(endpoint);
   const payload = { messages, model };
+  if (verified) payload.verification = HEADROOM_VERIFIED_MODE;
   if (compressUserMessages) payload.config = { compress_user_messages: true };
   let res;
   try {
@@ -356,7 +394,7 @@ async function callCompress(url, messages, model, timeoutMs, compressUserMessage
 // Compress request body via Headroom proxy. Fail-open: returns null on any error.
 // /v1/compress only understands OpenAI shape, so Claude bodies are translated
 // to OpenAI, compressed, then translated back using 9Router's own translators.
-export async function compressWithHeadroom(body, { enabled, url, model, format, compressUserMessages, timeoutMs = DEFAULT_TIMEOUT_MS, diagnostics = null } = {}) {
+export async function compressWithHeadroom(body, { enabled, url, model, format, compressUserMessages, verified = false, timeoutMs = DEFAULT_TIMEOUT_MS, diagnostics = null } = {}) {
   timeoutMs = normalizeTimeout(timeoutMs);
   if (!enabled) {
     setDiagnostic(diagnostics, "disabled");
@@ -374,13 +412,21 @@ export async function compressWithHeadroom(body, { enabled, url, model, format, 
   try {
     if (diagnostics) diagnostics.before = captureSizeSnapshot(body);
 
-    const toolOutputs = collectToolOutputText(body, format);
+    const toolOutputs = collectToolOutputText(body, format, verified);
+    if (verified && !toolOutputs) {
+      setDiagnostic(diagnostics, "unsupported native tool-output shape");
+      return null;
+    }
     if (toolOutputs) {
       if (!toolOutputs.messages.length) {
-        setDiagnostic(diagnostics, "no eligible plain-text tool output");
+        setDiagnostic(diagnostics, verified ? "no eligible JSON tool output" : "no eligible plain-text tool output");
         return null;
       }
-      const data = await callCompress(url, toolOutputs.messages, model, timeoutMs, compressUserMessages, diagnostics || {});
+      const data = await callCompress(url, toolOutputs.messages, model, timeoutMs, verified ? false : compressUserMessages, diagnostics || {}, verified);
+      if (verified && !verifyToolOutputResponse(toolOutputs, data)) {
+        setDiagnostic(diagnostics, "proxy response missing or mismatched lossless verification");
+        return null;
+      }
       if (!data || !applyToolOutputText(toolOutputs, data.messages, diagnostics)) return null;
       if (diagnostics) diagnostics.after = captureSizeSnapshot(body);
       return data;

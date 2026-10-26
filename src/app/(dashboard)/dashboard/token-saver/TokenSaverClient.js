@@ -13,6 +13,7 @@ import {
 export default function TokenSaverClient() {
   const [rtkEnabled, setRtkEnabledState] = useState(true);
   const [headroomEnabled, setHeadroomEnabled] = useState(false);
+  const [verifiedLossless, setVerifiedLossless] = useState(false);
   const [headroomUrl, setHeadroomUrl] = useState("http://localhost:8787");
   const [headroomTimeoutMs, setHeadroomTimeoutMs] = useState(3000);
   const [headroomStatus, setHeadroomStatus] = useState({
@@ -433,6 +434,7 @@ export default function TokenSaverClient() {
           const data = await res.json();
           setRtkEnabledState(data.rtkEnabled !== false);
           setHeadroomEnabled(!!data.headroomEnabled);
+          setVerifiedLossless(!!data.headroomVerifiedLossless);
           setHeadroomUrl(data.headroomUrl || "http://localhost:8787");
           if (typeof data.headroomTimeoutMs === "number") setHeadroomTimeoutMs(data.headroomTimeoutMs);
           setCodeAware(data.headroomCodeAware === true);
@@ -497,6 +499,20 @@ export default function TokenSaverClient() {
             Token Saver
           </h2>
         </div>
+        <div className="flex items-center justify-between py-4 border-b border-border gap-4">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Verified lossless mode</p>
+            <p className="text-sm text-text-muted">
+              Compress only tool results that restore every JSON value. Fractional JSON numbers,
+              plain text and unverifiable results stay unchanged. RTK, code/ML compression,
+              prompt modifiers and PXPIPE are bypassed. Requires the verified Headroom adapter.
+            </p>
+          </div>
+          <Toggle ariaLabel="Verified lossless mode" checked={verifiedLossless} onChange={() => {
+            setVerifiedLossless(!verifiedLossless);
+            patchSetting({ headroomVerifiedLossless: !verifiedLossless });
+          }} />
+        </div>
         <div className="flex items-center justify-between pt-2 pb-4 border-b border-border gap-4">
           <div className="min-w-0 flex-1">
             <p className="font-medium">
@@ -515,7 +531,8 @@ export default function TokenSaverClient() {
             </p>
           </div>
           <Toggle
-            checked={rtkEnabled}
+            checked={rtkEnabled && !verifiedLossless}
+            disabled={verifiedLossless}
             onChange={() => handleRtkEnabled(!rtkEnabled)}
           />
         </div>
@@ -580,8 +597,8 @@ export default function TokenSaverClient() {
                     >
                       <Toggle
                         size="sm"
-                        checked={active}
-                        disabled={restartingProxy}
+                        checked={active && !verifiedLossless}
+                        disabled={restartingProxy || verifiedLossless}
                         onChange={() => toggleExtraActive(extra, !active)}
                       />
                       <span className="font-medium">[{extra}]</span>
@@ -698,7 +715,8 @@ export default function TokenSaverClient() {
               </div>
             )}
             <Toggle
-              checked={cavemanEnabled}
+              checked={cavemanEnabled && !verifiedLossless}
+              disabled={verifiedLossless}
               onChange={() => handleCavemanEnabled(!cavemanEnabled)}
             />
           </div>
@@ -749,7 +767,8 @@ export default function TokenSaverClient() {
               </div>
             )}
             <Toggle
-              checked={ponytailEnabled}
+              checked={ponytailEnabled && !verifiedLossless}
+              disabled={verifiedLossless}
               onChange={() => handlePonytailEnabled(!ponytailEnabled)}
             />
           </div>
@@ -763,7 +782,8 @@ export default function TokenSaverClient() {
             </p>
           </div>
           <Toggle
-            checked={customPromptEnabled}
+            checked={customPromptEnabled && !verifiedLossless}
+              disabled={verifiedLossless}
             onChange={() => handleCustomPromptEnabled(!customPromptEnabled)}
           />
         </div>
@@ -825,7 +845,8 @@ export default function TokenSaverClient() {
             </p>
           </div>
           <Toggle
-            checked={pxpipeEnabled}
+            checked={pxpipeEnabled && !verifiedLossless}
+              disabled={verifiedLossless}
             disabled={!pxpipeStatus.installed}
             onChange={() => handlePxpipeEnabled(!pxpipeEnabled)}
           />
