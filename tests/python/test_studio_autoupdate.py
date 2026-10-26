@@ -54,6 +54,9 @@ class UpdateTest(unittest.TestCase):
         git(self.upstream, 'init', '-b', 'master')
         self.identity(self.upstream)
         (self.upstream / 'package.json').write_text('{"version":"1.0.0"}')
+        (self.upstream / 'tests').mkdir()
+        (self.upstream / 'tests/package.json').write_text('{"name":"tests"}')
+        (self.upstream / 'package-lock.json').write_text('{}')
         (self.upstream / 'custom.txt').write_text('base\n')
         git(self.upstream, 'add', '.')
         git(self.upstream, 'commit', '-m', 'Upstream base')
@@ -80,6 +83,8 @@ class UpdateTest(unittest.TestCase):
                 self.build_calls.append(args)
                 if self.failure and self.failure in ' '.join(map(str, args)):
                     raise RuntimeError('Simulated ' + self.failure + ' failure')
+                if '--package-lock-only' in args:
+                    (pathlib.Path(kwargs['cwd']) / 'package-lock.json').write_text('{"updated":"lock"}')
                 return ''
             return original(*args, **kwargs)
         self.job.command = command
@@ -146,6 +151,16 @@ class UpdateTest(unittest.TestCase):
         self.failure = 'studio-candidate-check.py'
         self.assertEqual(self.job.run(), 1)
         self.assert_unchanged()
+
+    def test_dependency_change_is_locked_and_committed_before_build(self):
+        (self.upstream / 'package.json').write_text('{"version":"1.1.0","dependencies":{"new-dep":"^2.0.0"}}')
+        git(self.upstream, 'commit', '-am', 'New upstream dependency')
+        git(self.upstream, 'tag', 'v1.1.0')
+        self.assertEqual(self.job.run(), 0)
+        self.assertEqual(json.loads((self.source / 'package-lock.json').read_text()), {'updated': 'lock'})
+        self.assertEqual(git(self.source, 'status', '--porcelain'), '')
+        self.assertIn('--package-lock-only', self.build_calls[0])
+        self.assertIn('--ignore-scripts', self.build_calls[0])
 
     def test_busy_service_defers_then_reuses_validated_candidate(self):
         self.new_version()

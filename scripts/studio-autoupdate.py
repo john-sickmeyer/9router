@@ -119,6 +119,25 @@ class Updater:
             # source checkout, other worktrees, releases, or database backups.
             self.git('worktree', 'remove', '--force', str(candidate))
 
+    def sync_locks(self, candidate, base):
+        # Upstream does not track its root lockfile. Resolve only manifest-driven
+        # changes in the isolated candidate, then commit the result before build.
+        fields = ('dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies', 'overrides', 'workspaces')
+        changed = []
+        for prefix in ('', 'tests/'):
+            name = prefix + 'package.json'
+            before = json.loads(self.git('show', base + ':' + name))
+            after = json.loads((candidate / name).read_text())
+            if any(before.get(field) != after.get(field) for field in fields):
+                self.command('npm', 'install', '--package-lock-only', '--ignore-scripts', '--no-audit', '--no-fund',
+                    cwd=candidate / prefix, timeout=600)
+                changed.append(prefix + 'package-lock.json')
+        if changed:
+            self.git('add', '--', *changed, cwd=candidate)
+            if self.git('diff', '--cached', '--name-only', cwd=candidate):
+                self.git('-c', 'user.name=Studio Updater', '-c', 'user.email=studio-updater@localhost',
+                    'commit', '-m', 'Update Studio dependency locks for upstream manifests', cwd=candidate)
+
     def prepare(self, base, target):
         self.remove_candidate()
         candidate = self.work / 'candidate'
@@ -126,6 +145,8 @@ class Updater:
         self.save(phase='merge')
         self.git('-c', 'user.name=Studio Updater', '-c', 'user.email=studio-updater@localhost',
             'merge', '--no-ff', target['revision'], '-m', f"Merge upstream {target['tag']} into Studio fork", cwd=candidate)
+        self.save(phase='dependency-locks')
+        self.sync_locks(candidate, base)
         revision = self.git('rev-parse', 'HEAD', cwd=candidate)
         self.save(phase='dependencies', candidateRevision=revision)
         self.command('npm', 'ci', '--no-audit', '--no-fund', cwd=candidate, timeout=1200)

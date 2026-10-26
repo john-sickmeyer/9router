@@ -86,7 +86,7 @@ The updater follows stable `vMAJOR.MINOR.PATCH` tags on `decolua/9router`'s `mas
 For a new version it:
 
 1. Merges into a private candidate worktree based on the exact deployed `studio` commit. The fork's speed, effort, catalog, and account-switching changes stay in Git history.
-2. Installs locked dependencies, runs `test:studio`, and builds with a temporary data directory. A conflict, lockfile mismatch, failed test, or build error leaves the live release intact.
+2. If upstream changed dependency manifests, resolves and commits the corresponding lockfiles inside the candidate, without running install scripts during resolution. Then installs locked dependencies, runs `test:studio`, and builds with a temporary data directory. A conflict, dependency-resolution failure, failed test, or build error leaves the live release intact.
 3. Boots the candidate on an unused loopback port with an empty temporary database. Checks cover both model catalogs, Claude effort metadata, dashboard/auth, disabled Claude Fast, blocked stock updater, and maintenance admission. This uses no real account credentials or paid inference.
 4. Defers activation if requests are active. A validated candidate is reused on the next hourly check. Activation also closes admission and drains any requests that started during the final checks; it never clears pending requests by age or forcibly restarts a busy worker.
 5. Backs up SQLite, changes the immutable release symlink, restarts the service, and checks the served revision, catalog, efforts, Claude Fast restriction, and unchanged account identities before reopening traffic. Failed activation restores the previous code and database. A journal allows the next run to recover an interrupted activation.
