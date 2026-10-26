@@ -77,7 +77,37 @@ ssh -N -L 20128:127.0.0.1:20128 mac-studio
 
 Then open `http://127.0.0.1:20128/dashboard/studio` and use the existing dashboard login. Tailscale supplies the encrypted network path; SSH supplies authentication and forwarding.
 
-## Review and keep upstream updates
+## Automatic upstream updates
+
+The Studio runs `scripts/studio-autoupdate.py` hourly through the user LaunchAgent `com.sickmeyer.9router-autoupdate`, and once when that agent loads. It runs independently of the laptop, Codex, and Happier. The logged-in Studio may be locked. A sleeping/offline Studio catches up after it wakes/reconnects; a full Mac restart still requires the normal macOS login before user LaunchAgents can run. Updates restart **9Router**, not macOS.
+
+The updater follows stable `vMAJOR.MINOR.PATCH` tags on `decolua/9router`'s `master`, verifies the tag's package version, and pins the exact commit. It ignores prerelease tags. GitHub's latest-release record is not the release source because it can lag the project's version tags. It never force-updates a fetched tag, resets the fork, or force-pushes.
+
+For a new version it:
+
+1. Merges into a private candidate worktree based on the exact deployed `studio` commit. The fork's speed, effort, catalog, and account-switching changes stay in Git history.
+2. Installs locked dependencies, runs `test:studio`, and builds with a temporary data directory. A conflict, lockfile mismatch, failed test, or build error leaves the live release intact.
+3. Boots the candidate on an unused loopback port with an empty temporary database. Checks cover both model catalogs, Claude effort metadata, dashboard/auth, disabled Claude Fast, blocked stock updater, and maintenance admission. This uses no real account credentials or paid inference.
+4. Defers activation if requests are active. A validated candidate is reused on the next hourly check. Activation also closes admission and drains any requests that started during the final checks; it never clears pending requests by age or forcibly restarts a busy worker.
+5. Backs up SQLite, changes the immutable release symlink, restarts the service, and checks the served revision, catalog, efforts, Claude Fast restriction, and unchanged account identities before reopening traffic. Failed activation restores the previous code and database. A journal allows the next run to recover an interrupted activation.
+6. Pushes the successful merge to `origin/studio` using a repository-scoped deploy key, then fast-forwards the source checkout. A network failure after activation is retried without restarting the working release. Independently changed source/remote branches require reconciliation; they are never overwritten.
+
+Failed candidates retry after six hours, or immediately when a different upstream version becomes available. Merge conflicts and incompatible upstream changes may still need a code fix; automation preserves the last working release while those are unresolved. The regression suite verifies controls and simulated account fallback, but cannot promise a provider's throughput or prevent external API changes.
+
+State and logs are in `~/Library/Application Support/9router-studio/autoupdate/`: `status.json`, `run-*.log`, `candidate.log`, and `launchd.log`. The candidate worktree is disposable and replaced only by this updater; immutable releases and database backups are retained. The deploy key is confined to this repository and its private half stays on the Studio. GitHub's published SSH host keys are pinned in that directory's `known_hosts`.
+
+Initial installation, after the committed source has been tested and deployed:
+
+```sh
+cd "$HOME/Library/Application Support/9router-studio/source"
+python3 scripts/studio-autoupdate.py --install
+```
+
+Run a check immediately with `python3 scripts/studio-autoupdate.py`. An exclusive lock prevents overlapping checks. To pause checks for manual maintenance, create `autoupdate/paused` under the service directory; remove that file to resume. This does not interrupt an update already running: wait for that run to finish before changing the source or live release.
+
+This schedule upgrades only the 9Router fork. It does not upgrade Happier, Codex, or Claude Code, and does not alter their native model catalogs/configurations. Review and regenerate the Codex native catalog separately when upgrading its CLI.
+
+## Manual upstream review and recovery
 
 Never run the stock npm updater against this service. The dashboard update action is disabled in the fork. Do not reset `studio` to upstream's branch. Merge upstream changes into a candidate instead:
 
@@ -103,12 +133,12 @@ python3 scripts/studio-release.py activate FULL_40_CHARACTER_COMMIT_SHA
 
 The build wrapper verifies that the source stays clean and on the same commit throughout the build. Staging refuses an old build from another revision. Before activation, validate the staged build on an unused loopback port with an isolated data directory. Use credential-free health tests first. Do not run two copies of the same refresh token through independent refresh schedulers.
 
-Activation puts the running fork into maintenance mode, waits up to 60 seconds for active controlled requests, makes a consistent SQLite backup, switches the build symlink, restarts only its LaunchAgent, and verifies the new release ID. Failure restores the prior build and pre-activation database before reopening traffic. A timeout leaves the running release unchanged. The first migration uses the explicit `--migrate-stock` flag because stock 9Router lacks this maintenance endpoint.
+Activation puts the running fork into maintenance mode, waits up to 60 seconds for active controlled requests, makes a consistent SQLite backup, switches the build symlink, restarts only its LaunchAgent, and verifies the new release and Studio contract. Failure restores the prior build and pre-activation database before reopening traffic. A timeout leaves the running release unchanged. The first migration uses the explicit `--migrate-stock` flag because stock 9Router lacks this maintenance endpoint.
 
 For a later code rollback, activate the previous full SHA recorded in `last-activation.json` using the same command. This preserves current data and makes another backup. Database schema rollback across incompatible upstream migrations requires stopping the service and restoring the matching saved SQLite backup; do not restore a live database or discard refreshed credentials without review.
 
 ## Checks
 
-`npm --prefix tests run test:studio` covers request/alias validation, both Responses and Chat input paths, account rotation after a simulated 429, capability exclusion, tool-stream preservation, speed/effort mismatch, incomplete streams, and existing Codex/access-control regressions. Live account eligibility and tiny provider requests are separate acceptance checks; timing alone does not prove a speed tier.
+`npm --prefix tests run test:studio` covers request/alias validation, both Responses and Chat input paths, account rotation after a simulated 429, capability exclusion, tool-stream preservation, speed/effort mismatch, incomplete streams, and existing Codex/access-control regressions. Python tests use real temporary Git repositories to exercise merge/publish, conflicts, prerelease exclusion, failed validation, busy deferral/reuse, publication retry, and overlap protection. Separate SQLite recovery tests verify code/database rollback and retained maintenance if recovery is unhealthy. Live account eligibility and tiny provider requests are separate acceptance checks; timing alone does not prove a speed tier.
 
 Sources: [Codex speed](https://learn.chatgpt.com/docs/agent-configuration/speed), [Claude Fast](https://platform.claude.com/docs/en/build-with-claude/fast-mode), [Claude effort](https://platform.claude.com/docs/en/build-with-claude/effort).

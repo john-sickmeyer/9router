@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Run on the Studio. Stage immutable builds; activate with drain/backup/rollback."""
 import argparse, base64, fcntl, hashlib, hmac, json, os, pathlib, plistlib, shutil, sqlite3, subprocess, time, urllib.request
+from contextlib import closing
+from studio_health import request, live_contract
 
 ROOT = pathlib.Path.home() / 'Library/Application Support/9router-studio'
 DATA = pathlib.Path.home() / '.9router'
@@ -10,6 +12,19 @@ PLIST = AGENTS / (LABEL + '.plist')
 MAINTENANCE = ROOT / 'maintenance'
 DOMAIN = f'gui/{os.getuid()}'
 PORT = 20128
+
+def atomic_json(path, data):
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_text(json.dumps(data, indent=2))
+    os.chmod(tmp, 0o600)
+    tmp.replace(path)
+
+def health(rev, baseline=None):
+    state = status()
+    if state['release'] != rev: raise RuntimeError('Worker is serving the wrong release')
+    code, catalog = request(PORT, DATA, '/v1/models', admin=True)
+    if code != 200: raise RuntimeError('Model catalog is unavailable')
+    return live_contract(state, catalog, baseline)
 
 def run(*args, check=True, **kwargs):
     return subprocess.run(args, check=check, **kwargs)
@@ -74,6 +89,31 @@ def restore_db(backup):
         (DATA / ('db/data.sqlite' + suffix)).unlink(missing_ok=True)
     shutil.copy2(backup / 'data.sqlite', DATA / 'db/data.sqlite')
 
+def recover():
+    """Called under release.lock. Recover an interrupted activation after a restart."""
+    journal = ROOT / 'activation-in-progress.json'
+    if not journal.exists(): return
+    saved = json.loads(journal.read_text())
+    if saved.get('committed'):
+        atomic_json(ROOT / 'last-activation.json', saved['receipt'])
+    else:
+        previous = pathlib.Path(saved['previous'])
+        backup = pathlib.Path(saved['backup'])
+        stop()
+        if saved.get('backedUp'): restore_db(backup)
+        switch(previous)
+        PLIST.write_bytes((backup / PLIST.name).read_bytes())
+        start()
+        for _ in range(45):
+            try:
+                health(previous.name)
+                break
+            except Exception: time.sleep(1)
+        else: raise RuntimeError('Recovery worker is unhealthy; maintenance retained')
+        atomic_json(ROOT / 'last-recovery.json', {'previous': str(previous), 'time': int(time.time())})
+    journal.unlink()
+    MAINTENANCE.unlink(missing_ok=True)
+
 def activate(rev, migrate):
     if len(rev) != 40 or any(c not in '0123456789abcdef' for c in rev): raise RuntimeError('Use a full commit SHA')
     release = ROOT / 'releases' / rev
@@ -81,10 +121,15 @@ def activate(rev, migrate):
     ROOT.mkdir(parents=True, exist_ok=True)
     previous = (ROOT / 'current').resolve() if (ROOT / 'current').exists() else None
     if not previous and not migrate: raise RuntimeError('First install requires --migrate-stock')
+    baseline = health(previous.name) if previous and not migrate else None
     backup = ROOT / 'backups' / (time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + rev[:8])
     backup.mkdir(parents=True, mode=0o700)
     old_plist = PLIST.read_bytes() if PLIST.exists() else None
     if old_plist: (backup / PLIST.name).write_bytes(old_plist)
+    journal = ROOT / 'activation-in-progress.json'
+    saved = {'previous': str(previous), 'backup': str(backup), 'backedUp': False}
+    # The first migration is operator-run; unattended updates always have a previous fork.
+    if previous and old_plist: atomic_json(journal, saved)
     MAINTENANCE.write_text('Draining for release ' + rev)
     stopped = False
     backed_up = False
@@ -108,10 +153,12 @@ def activate(rev, migrate):
         stop(); stopped = True
         # Capture after stopping the worker so background OAuth refresh cannot
         # rotate credentials between the backup and the service stop.
-        with sqlite3.connect(DATA / 'db/data.sqlite') as src, sqlite3.connect(backup / 'data.sqlite') as dest:
+        with closing(sqlite3.connect(DATA / 'db/data.sqlite')) as src, closing(sqlite3.connect(backup / 'data.sqlite')) as dest:
             src.backup(dest)
         os.chmod(backup / 'data.sqlite', 0o600)
         backed_up = True
+        saved['backedUp'] = True
+        if previous and old_plist: atomic_json(journal, saved)
         switch(release)
         node = shutil.which('node')
         if not node: raise RuntimeError('Node is not on PATH')
@@ -127,12 +174,15 @@ def activate(rev, migrate):
         PLIST.write_bytes(plistlib.dumps(spec)); start()
         for _ in range(45):
             try:
-                if status()['release'] == rev: break
+                health(rev, baseline)
+                break
             except Exception: pass
             time.sleep(1)
         else: raise RuntimeError('New release did not pass health check')
         receipt = {'revision': rev, 'previous': str(previous) if previous else None, 'backup': str(backup), 'time': int(time.time())}
-        (ROOT / 'last-activation.json').write_text(json.dumps(receipt, indent=2))
+        if journal.exists(): atomic_json(journal, {**saved, 'committed': True, 'receipt': receipt})
+        atomic_json(ROOT / 'last-activation.json', receipt)
+        journal.unlink(missing_ok=True)
         print(json.dumps(receipt, indent=2))
     except Exception:
         if stopped:
@@ -142,13 +192,20 @@ def activate(rev, migrate):
                 switch(previous)
                 PLIST.write_bytes(old_plist)
                 start()
+                for _ in range(45):
+                    try:
+                        health(previous.name, baseline)
+                        break
+                    except Exception: time.sleep(1)
+                else: raise RuntimeError('Rollback worker is unhealthy; maintenance retained')
             else:
                 PLIST.unlink(missing_ok=True)
                 for p, disabled in reversed(stock):
                     disabled.replace(p); start(p)
+        journal.unlink(missing_ok=True)
         raise
     finally:
-        MAINTENANCE.unlink(missing_ok=True)
+        if not journal.exists(): MAINTENANCE.unlink(missing_ok=True)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -163,6 +220,7 @@ def main():
         with (ROOT / 'release.lock').open('w') as lock:
             try: fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError: raise RuntimeError('Another release operation is already running')
+            recover()
             activate(args.revision, args.migrate_stock)
     else: print(json.dumps(status(), indent=2))
 
