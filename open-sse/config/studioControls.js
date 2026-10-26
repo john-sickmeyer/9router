@@ -27,6 +27,8 @@ export const STUDIO_VISIBLE_MODELS = [
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
   { id: "cc/claude-fable-5-1", provider: "claude", name: "Claude Fable 5.1" },
 ];
+// Speed-only picker variants: effort remains a native client control.
+export const STUDIO_CODEX_PICKER_SPEEDS = ["standard", "fast", "ultrafast"];
 export const STUDIO_MODEL_ALIASES = Object.fromEntries(
   STUDIO_VISIBLE_MODELS.map(({ id }) => [id.slice(id.indexOf("/") + 1), id])
 );

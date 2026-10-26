@@ -34,6 +34,27 @@ beforeEach(() => {
   fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers: ["ultrafast"], efforts: ["max", "ultra"] } } } } }));
 });
 describe("Studio client-to-provider pipeline", () => {
+  it.each(["gpt-6.1-sol", "gpt-6-astra"].flatMap(model => ["standard", "fast", "ultrafast"].flatMap(speed => ["low", "high"].map(effort => ({ model, speed, effort })))))
+  ("routes the native picker alias $model@$speed with independent $effort effort", async ({ model, speed, effort }) => {
+    for (const account of fx.accounts) {
+      account.providerSpecificData.studioCapabilities.models[model] = { tiers: ["priority", "ultrafast"], efforts: ["low", "high", "max"] };
+    }
+    fx.failFirst = true;
+    const response = await handleChat(new Request("http://localhost/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.162.1" },
+      body: JSON.stringify({ model: `${model}@${speed}`, reasoning: { effort }, input: "Preserve this conversation", stream: false }),
+    }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("OK");
+    expect(fx.sent.map(s => s.account)).toEqual(["one", "two"]);
+    for (const { body } of fx.sent) {
+      expect(body.model).toBe(model);
+      expect(body.service_tier || "default").toBe({ standard: "default", fast: "priority", ultrafast: "ultrafast" }[speed]);
+      expect(body.reasoning.effort).toBe(effort);
+      expect(JSON.stringify(body.input)).toContain("Preserve this conversation");
+    }
+  });
+
   it("preserves useful output while clearly auditing ambiguous Codex default metadata", async () => {
     fx.reportedTier = "default";
     const response = await handleChat(new Request("http://localhost/v1/responses", {

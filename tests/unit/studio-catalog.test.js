@@ -10,10 +10,21 @@ const models = [
 ].map(id => ({ id, context_length: 200000, max_completion_tokens: 32000, capabilities: { vision: true } }));
 
 describe("Studio picker catalog", () => {
-  it("advertises exactly two models per provider, with no duplicate or control aliases", () => {
-    expect(studioModelCatalog(models).map(m => m.id)).toEqual([
-      "cx/gpt-6.1-sol", "cx/gpt-6-astra", "cc/claude-opus-5-5", "cc/claude-fable-5-1",
+  it("advertises three speed choices for each Codex family and two Claude models", () => {
+    const catalog = studioModelCatalog(models);
+    expect(catalog.map(m => m.id)).toEqual([
+      "cx/gpt-6.1-sol@standard", "cx/gpt-6.1-sol@fast", "cx/gpt-6.1-sol@ultrafast",
+      "cx/gpt-6-astra@standard", "cx/gpt-6-astra@fast", "cx/gpt-6-astra@ultrafast",
+      "cc/claude-opus-5-5", "cc/claude-fable-5-1",
     ]);
+    expect(catalog.slice(0, 3).map(m => m.name)).toEqual(["GPT-6.1 Sol", "GPT-6.1 Sol Fast", "GPT-6.1 Sol Ultrafast"]);
+    for (const entry of catalog.slice(0, 6)) {
+      expect(entry.studio_controls.effort).toBeNull();
+      for (const effort of ["low", "high"]) {
+        expect(resolveControls("codex", entry.id.slice(3), { reasoning: { effort } }))
+          .toMatchObject({ effort, tier: { standard: "default", fast: "priority", ultrafast: "ultrafast" }[entry.studio_controls.speed] });
+      }
+    }
   });
   it("provides Anthropic effort capabilities to Happier and excludes other providers", () => {
     const catalog = studioModelCatalog(models, { anthropic: true });

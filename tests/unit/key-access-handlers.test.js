@@ -216,8 +216,14 @@ describe("/v1/models routes filter by key", () => {
   it("curates discovery without bypassing key access, and returns Claude effort metadata", async () => {
     vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
     fx.connections = [{ provider: "codex", isActive: true }, { provider: "claude", isActive: true }];
-    expect(await list("sk-open")).toEqual(["cx/gpt-6.1-sol", "cx/gpt-6-astra", "cc/claude-opus-5-5", "cc/claude-fable-5-1"]);
+    expect(await list("sk-open")).toEqual([
+      "cx/gpt-6.1-sol@standard", "cx/gpt-6.1-sol@fast", "cx/gpt-6.1-sol@ultrafast",
+      "cx/gpt-6-astra@standard", "cx/gpt-6-astra@fast", "cx/gpt-6-astra@ultrafast",
+      "cc/claude-opus-5-5", "cc/claude-fable-5-1",
+    ]);
     expect(await list("sk-empty")).toEqual([]);
+    fx.keys["sk-speed"] = { isActive: true, access: { restricted: true, allow: ["cx/gpt-6-astra@fast"] } };
+    expect(await list("sk-speed")).toEqual(["cx/gpt-6-astra@fast"]);
     fx.keys["sk-claude"] = { isActive: true, access: { restricted: true, allow: ["cc/claude-opus-5-5"] } };
     const response = await modelsRoute.GET(new Request("http://localhost/v1/models", {
       headers: { ...auth("sk-claude"), "anthropic-version": "2023-06-01" },
