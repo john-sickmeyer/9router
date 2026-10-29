@@ -93,6 +93,8 @@ export async function POST(request) {
           valid: data.valid,
           latencyMs: data.latencyMs || 0,
           error: data.error || null,
+          warning: data.warning || null,
+          retryAfter: data.retryAfter || null,
           diagnosis: data.diagnosis || null,
           statusCode: data.statusCode || null,
           testedAt: data.testedAt || new Date().toISOString(),

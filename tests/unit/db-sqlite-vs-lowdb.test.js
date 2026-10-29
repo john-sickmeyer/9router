@@ -169,7 +169,7 @@ describe("DB SQLite layer — public API parity", () => {
     });
   });
 
-  it("providerConnections: active soft warnings survive the health reset", async () => {
+  it("providerConnections: active soft warnings survive an expired health reset", async () => {
     const c = await sqliteDb.createProviderConnection({
       provider: "health-reset-warning",
       authType: "oauth",
@@ -178,7 +178,7 @@ describe("DB SQLite layer — public API parity", () => {
     await sqliteDb.updateProviderConnection(c.id, {
       testStatus: "unavailable",
       lastError: "Old failure",
-      modelLock_modelA: "2099-01-01T00:00:00.000Z",
+      modelLock_modelA: "2000-01-01T00:00:00.000Z",
     });
 
     const warningAt = "2026-09-06T00:00:00.000Z";

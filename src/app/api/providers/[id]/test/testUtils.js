@@ -29,6 +29,8 @@ import {
 } from "@/lib/oauth/constants/oauth";
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { hasWebIdentityProbe, fetchWebIdentity } from "open-sse/services/webIdentity.js";
+import { checkClaudeQuota } from "@/sse/services/claudeQuota.js";
+import { getEarliestModelLockUntil, buildModelLockUpdate } from "open-sse/services/accountFallback.js";
 
 // OAuth provider test endpoints
 const OAUTH_TEST_CONFIG = {
@@ -1033,7 +1035,29 @@ export async function testSingleConnection(id) {
     }
   }
 
-  await updateProviderConnection(id, updateData);
+  if (result.valid && connection.provider === "claude") {
+    const quota = await checkClaudeQuota({
+      ...connection,
+      accessToken: updateData.accessToken || connection.accessToken,
+      providerSpecificData: { ...connection.providerSpecificData, ...effectiveProxy },
+    });
+    if (quota) {
+      Object.assign(updateData, buildModelLockUpdate(null, quota.resetsAtMs - Date.now()), {
+        testStatus: "unavailable",
+        lastError: `Claude ${quota.name} usage limit reached. Resets ${new Date(quota.resetsAtMs).toISOString()}.`,
+        lastErrorAt: new Date().toISOString(),
+        errorCode: 429,
+      });
+    }
+  }
 
-  return { valid: result.valid, error: result.error, refreshed: !!result.refreshed, latencyMs, testedAt: new Date().toISOString() };
+  const updated = await updateProviderConnection(id, updateData);
+  const retryAfter = getEarliestModelLockUntil(updated);
+  const warning = result.valid
+    ? retryAfter
+      ? `Credentials valid; model availability is limited until ${retryAfter}. ${updated.lastError || ""}`.trim()
+      : softWarning || "Credentials check passed; model capacity is not tested."
+    : null;
+
+  return { valid: result.valid, error: result.error, warning, retryAfter, refreshed: !!result.refreshed, latencyMs, testedAt: new Date().toISOString() };
 }

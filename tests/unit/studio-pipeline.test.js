@@ -1,5 +1,6 @@
 import { beforeEach, describe, it, expect, vi } from "vitest";
-const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null }));
+const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null, usage: null }));
+vi.mock("../../open-sse/services/usage/claude.js", () => ({ getClaudeUsage: async () => fx.usage }));
 vi.mock("@/lib/localDb", () => ({
   getSettings: async () => ({ requireApiKey: false, providerThinking: { codex: { mode: "low" } } }),
   getProviderConnections: async () => fx.accounts,
@@ -20,20 +21,37 @@ vi.mock("../../open-sse/executors/index.js", async () => {
   const { CodexExecutor } = await import("../../open-sse/executors/codex.js");
   const { assertOutboundControls } = await import("../../open-sse/services/studioControls.js");
   return { getExecutor: () => ({ noAuth: true, async execute(args) {
-    const body = new CodexExecutor().transformRequest(args.model, args.body, true, args.credentials);
+    const isClaude = args.model.startsWith("claude-");
+    const body = isClaude ? args.body : new CodexExecutor().transformRequest(args.model, args.body, true, args.credentials);
     assertOutboundControls(body, args.credentials.studioControls);
     fx.sent.push({ account: args.credentials.connectionId, body: structuredClone(body) });
     if (fx.failFirst && fx.sent.length === 1) return { transformedBody: body, response: Response.json({ error: { message: "Rate limit reached" } }, { status: 429 }) };
+    if (isClaude) return { transformedBody: body, response: Response.json({ id: "test", type: "message", role: "assistant", model: args.model,
+      content: [{ type: "text", text: "OK" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 } }) };
     const payload = { type: "response.completed", response: { id: "test", status: "completed", service_tier: fx.reportedTier || body.service_tier, reasoning: body.reasoning, output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 1, output_tokens: 1 } } };
     return { transformedBody: body, response: new Response(`data: ${JSON.stringify(payload)}\n\n`, { headers: { "content-type": "text/event-stream" } }) };
   } }) };
 });
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 beforeEach(() => {
-  fx.sent = []; fx.events = []; fx.failFirst = false; fx.reportedTier = null;
+  fx.sent = []; fx.events = []; fx.failFirst = false; fx.reportedTier = null; fx.usage = null;
   fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers: ["ultrafast"], efforts: ["max", "ultra"] } } } } }));
 });
 describe("Studio client-to-provider pipeline", () => {
+  it("rotates Claude after weekly exhaustion and skips it on subsequent requests", async () => {
+    fx.accounts = ["one", "two"].map(id => ({ id, provider: "claude", isActive: true, accessToken: "fixture" }));
+    fx.usage = { quotas: { "weekly (7d)": { remainingPercentage: 0, resetAt: "2099-01-01T00:00:00.000Z" } } };
+    fx.failFirst = true;
+    const send = () => handleChat(new Request("http://localhost/v1/messages", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: "cc/claude-opus-5-5", stream: false, max_tokens: 8, messages: [{ role: "user", content: "hi" }], output_config: { effort: "high" } }) }));
+    const first = await send();
+    expect(first.status).toBe(200);
+    expect(await first.text()).toContain("OK");
+    expect(fx.accounts[0].modelLock___all).toBe("2099-01-01T00:00:00.000Z");
+    expect((await send()).status).toBe(200);
+    expect(fx.sent.map(row => row.account)).toEqual(["one", "two", "two"]);
+    for (const { body } of fx.sent) expect(body.output_config.effort).toBe("high");
+  });
   it.each(["gpt-6.1-sol", "gpt-6-astra"].flatMap(model => ["standard", "fast", "ultrafast"].flatMap(speed => ["low", "high"].map(effort => ({ model, speed, effort })))))
   ("routes the native picker alias $model@$speed with independent $effort effort", async ({ model, speed, effort }) => {
     for (const account of fx.accounts) {

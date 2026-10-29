@@ -38,8 +38,11 @@ export const BACKOFF_CONFIG = {
 // Default cooldown for transient/unknown errors
 export const TRANSIENT_COOLDOWN_MS = 30 * 1000;
 
-// Hard cap for provider-reported rate limit cooldown (e.g. codex resets_at can be 5-6h)
+// Fallback cooldown for unsupported-model errors without an upstream reset time.
 export const MAX_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
+
+// Quota diagnostics must not hold up account fallback on an unavailable endpoint.
+export const QUOTA_LOOKUP_TIMEOUT_MS = 5000;
 
 // Cooldown durations (ms)
 const COOLDOWN = {

@@ -139,10 +139,14 @@ export function getModelLockKey(model) {
  * Reads flat field `modelLock_${model}` (or `modelLock___all` when model=null).
  */
 export function isModelLockActive(connection, model) {
+  return getModelLockUntil(connection, model) !== null;
+}
+
+export function getModelLockUntil(connection, model) {
   const key = getModelLockKey(model);
-  const expiry = connection[key] || connection[MODEL_LOCK_ALL];
-  if (!expiry) return false;
-  return new Date(expiry).getTime() > Date.now();
+  const times = [connection[key], connection[MODEL_LOCK_ALL]]
+    .map(expiry => Date.parse(expiry)).filter(time => time > Date.now());
+  return times.length ? new Date(Math.max(...times)).toISOString() : null;
 }
 
 /**
@@ -159,7 +163,8 @@ export function getEarliestModelLockUntil(connection) {
     if (t <= now) continue;
     if (!earliest || t < earliest) earliest = t;
   }
-  return earliest ? new Date(earliest).toISOString() : null;
+  const global = Date.parse(connection[MODEL_LOCK_ALL]);
+  return earliest ? new Date(Math.max(earliest, Number.isFinite(global) ? global : 0)).toISOString() : null;
 }
 
 /**

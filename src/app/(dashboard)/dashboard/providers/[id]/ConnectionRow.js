@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { getStatusVariant as getConnectionStatusVariant } from "@/shared/utils/connectionStatus";
+import { getStatusVariant as getConnectionStatusVariant, getConnectionHealth } from "@/shared/utils/connectionStatus";
 import PropTypes from "prop-types";
 import { Badge, Toggle, Tooltip } from "@/shared/components";
 import CooldownTimer from "./CooldownTimer";
@@ -131,23 +131,13 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
       : null;
 
   // Use useState + useEffect for impure Date.now() to avoid calling during render
-  const [isCooldown, setIsCooldown] = useState(false);
-
-  // Get earliest model lock timestamp (useEffect handles the Date.now() comparison)
-  const modelLockUntil = Object.entries(connection)
-    .filter(([k]) => k.startsWith("modelLock_"))
-    .map(([, v]) => v)
-    .filter(v => !!v)
-    .sort()[0] || null;
+  const [health, setHealth] = useState(() => getConnectionHealth(connection));
+  const modelLockUntil = health.retryAfter;
+  const isCooldown = !!modelLockUntil;
 
   useEffect(() => {
     const checkCooldown = () => {
-      const until = Object.entries(connection)
-        .filter(([k]) => k.startsWith("modelLock_"))
-        .map(([, v]) => v)
-        .filter(v => v && new Date(v).getTime() > Date.now())
-        .sort()[0] || null;
-      setIsCooldown(!!until);
+      setHealth(getConnectionHealth(connection));
     };
 
     checkCooldown();
@@ -155,18 +145,16 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [modelLockUntil]);
+  }, [connection, modelLockUntil]);
 
   // Determine effective status (override unavailable if cooldown expired)
-  const effectiveStatus = (connection.testStatus === "unavailable" && !isCooldown)
-    ? "active"  // Cooldown expired u2192 treat as active
-    : connection.testStatus;
+  const effectiveStatus = health.status;
 
   const getStatusVariant = () => getConnectionStatusVariant(connection.isActive, effectiveStatus);
 
   const getOneByOneVariant = () => {
     if (!oneByOneStatus) return "default";
-    if (oneByOneStatus.state === "success") return "success";
+    if (oneByOneStatus.state === "success") return oneByOneStatus.limited ? "warning" : "success";
     if (oneByOneStatus.state === "failed") return "error";
     if (oneByOneStatus.state === "testing") return "primary";
     return "default";
@@ -176,7 +164,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
     if (!oneByOneStatus) return null;
     if (oneByOneStatus.state === "queued") return "queued";
     if (oneByOneStatus.state === "testing") return "testing";
-    if (oneByOneStatus.state === "success") return "success";
+    if (oneByOneStatus.state === "success") return oneByOneStatus.limited ? "credentials valid; rate limited" : "credentials valid";
     if (oneByOneStatus.state === "failed") return oneByOneStatus.error ? `failed: ${oneByOneStatus.error}` : "failed";
     return null;
   };
@@ -224,7 +212,7 @@ export default function ConnectionRow({ connection, proxyPools, isOAuth, isFirst
             {isCooldown && connection.isActive !== false && <CooldownTimer until={modelLockUntil} />}
             {connection.lastError && connection.isActive !== false && (
               <span className="max-w-full truncate text-xs text-red-500 sm:max-w-[300px]" title={connection.lastError}>
-                {connection.lastError}
+                {effectiveStatus === "retry ready" ? `Last error (retry available): ${connection.lastError}` : connection.lastError}
               </span>
             )}
             <span className="text-xs text-text-muted">#{connection.priority}</span>
@@ -361,6 +349,7 @@ ConnectionRow.propTypes = {
   oneByOneStatus: PropTypes.shape({
     state: PropTypes.string,
     error: PropTypes.string,
+    limited: PropTypes.bool,
   }),
   autoPing: PropTypes.shape({
     isActive: PropTypes.bool,

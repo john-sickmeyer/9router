@@ -750,6 +750,7 @@ export default function ProviderDetailPage() {
             [connection.id]: {
               state: valid ? "success" : "failed",
               error: valid ? null : (data.error || null),
+              limited: valid && !!data.retryAfter,
             },
           }));
         } catch (error) {

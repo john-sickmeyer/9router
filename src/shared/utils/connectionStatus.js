@@ -1,8 +1,21 @@
 export function getStatusVariant(isActive, effectiveStatus) {
   if (isActive === false) return "default";
+  if (effectiveStatus === "rate limited" || effectiveStatus === "retry ready") return "warning";
   if (effectiveStatus === "active" || effectiveStatus === "success") return "success";
   if (effectiveStatus === "error" || effectiveStatus === "expired" || effectiveStatus === "unavailable") return "error";
   return "default";
+}
+
+export function getConnectionHealth(connection, now = Date.now()) {
+  const expiries = Object.entries(connection)
+    .filter(([key, value]) => key.startsWith("modelLock_") && Date.parse(value) > now)
+    .map(([, value]) => value).sort();
+  const global = connection.modelLock___all;
+  const retryAfter = Date.parse(global) > now ? global : expiries[0] || null;
+  const status = retryAfter
+    ? Number(connection.errorCode) === 429 ? "rate limited" : "unavailable"
+    : connection.testStatus === "unavailable" ? "retry ready" : connection.testStatus;
+  return { status, retryAfter };
 }
 
 /**

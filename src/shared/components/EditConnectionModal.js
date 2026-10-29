@@ -27,6 +27,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
   const [region, setRegion] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  const [testMessage, setTestMessage] = useState(null);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -67,6 +68,7 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
         setRegion(savedRegion);
       }
       setTestResult(null);
+      setTestMessage(null);
       setValidationResult(null);
     }
   }, [connection, isOpen]);
@@ -99,10 +101,12 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
     if (!connection?.provider) return;
     setTesting(true);
     setTestResult(null);
+    setTestMessage(null);
     try {
       const res = await fetch(`/api/providers/${connection.id}/test`, { method: "POST" });
       const data = await res.json();
       setTestResult(data.valid ? "success" : "failed");
+      setTestMessage(data.warning || data.error || null);
     } catch {
       setTestResult("failed");
     } finally {
@@ -354,9 +358,10 @@ export default function EditConnectionModal({ isOpen, connection, proxyPools, on
             </Button>
             {testResult && (
               <Badge variant={testResult === "success" ? "success" : "error"}>
-                {testResult === "success" ? "Valid" : "Failed"}
+                {testResult === "success" ? "Credentials valid" : "Failed"}
               </Badge>
             )}
+            {testMessage && <p className="text-xs text-text-muted">{testMessage}</p>}
           </div>
         )}
 
