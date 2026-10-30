@@ -10,6 +10,14 @@ const models = [
 ].map(id => ({ id, context_length: 200000, max_completion_tokens: 32000, capabilities: { vision: true } }));
 
 describe("Studio picker catalog", () => {
+  it("advertises both Kimi K3.1 models when available, with their actual efforts", () => {
+    const kimi = ["moonshot/kimi-k3.1-pro", "moonshot/kimi-k3.1-pro-highspeed"].map(id => ({ id }));
+    const result = studioModelCatalog([...models, ...kimi]);
+    expect(result.slice(-2).map(m => m.id)).toEqual(kimi.map(m => m.id));
+    expect(result.at(-1).context_length).toBe(1048576);
+    expect(Object.keys(result.at(-1).capabilities.effort)).toEqual(["supported", "low", "high", "max"]);
+    expect(studioModelCatalog([...models, ...kimi], { anthropic: true })).toHaveLength(2);
+  });
   it("advertises three speed choices for each Codex family and two Claude models", () => {
     const catalog = studioModelCatalog(models);
     expect(catalog.map(m => m.id)).toEqual([

@@ -60,7 +60,7 @@ def validate(build, revision, log_path):
                 for label, headers in [('catalog', {}), ('claude_catalog', {'anthropic-version': '2023-06-01'})]:
                     code, content = call('/v1/models', headers=headers)
                     if code != 200: raise RuntimeError('Candidate catalog unavailable')
-                    catalog_contract(content, anthropic=bool(headers), pooled=True)
+                    catalog_contract(content, anthropic=bool(headers), pooled=True, kimi=True)
                     checks[label] = True
                 code, content = call('/dashboard/studio', admin=True)
                 checks['dashboard'] = code == 200 and b'Studio controls' in content

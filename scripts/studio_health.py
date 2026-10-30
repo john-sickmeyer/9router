@@ -11,6 +11,7 @@ CODEX = ['gpt-6.1-sol', 'gpt-6-astra']
 CLAUDE = ['claude-opus-5-5', 'claude-fable-5-1']
 SPEEDS = ['standard', 'fast', 'ultrafast']
 EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+KIMI = ['moonshot/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro-highspeed']
 
 
 def request(port, data_dir, path, payload=None, admin=False, headers=None):
@@ -31,10 +32,11 @@ def request(port, data_dir, path, payload=None, admin=False, headers=None):
         return error.code, error.read()
 
 
-def catalog_contract(content, anthropic=False, pooled=False):
+def catalog_contract(content, anthropic=False, pooled=False, kimi=False):
     models = json.loads(content)['data']
     expected = (CLAUDE if anthropic else
         [f'{"" if pooled else "cx/"}{model}@{speed}' for model in CODEX for speed in SPEEDS] + [f'cc/{model}' for model in CLAUDE])
+    if kimi and not anthropic: expected += KIMI
     if sorted(model['id'] for model in models) != sorted(expected):
         raise RuntimeError('Model catalog no longer matches the approved Studio choices')
     for model in models:
@@ -45,7 +47,7 @@ def catalog_contract(content, anthropic=False, pooled=False):
 
 
 def live_contract(status, catalog, baseline=None):
-    catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False))
+    catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False), kimi=bool(status.get('kimiModels')))
     expected = [f'cx/{model}' for model in CODEX] + [f'cc/{model}' for model in CLAUDE]
     choices = status['choices']
     if sorted(row['id'] for row in choices) != sorted(expected):
@@ -56,7 +58,7 @@ def live_contract(status, catalog, baseline=None):
         if row['id'].startswith('cc/') and row['speeds'] != ['standard']:
             raise RuntimeError('Claude Fast must remain disabled')
     pool = status.get('openaiPool', {})
-    accounts = sorted((row['id'], row['provider']) for row in status['accounts'] + pool.get('accounts', []))
+    accounts = sorted((row['id'], row['provider']) for row in status.get('connectionIdentities', status['accounts'] + pool.get('accounts', [])))
     if baseline is not None and accounts != baseline:
         raise RuntimeError('Connected account identities changed during activation')
     if baseline is not None and any(provider == 'openai' for _, provider in baseline) and not pool.get('enabled'):

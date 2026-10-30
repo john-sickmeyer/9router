@@ -37,7 +37,19 @@ Requests bearing `anthropic-version` receive only the two Claude models with Ant
 
 Happier's Codex picker uses Codex `model/list`, not `/v1/models`. Generate a matching native catalog with `python3 scripts/studio-codex-catalog.py VERSION /absolute/path/models.json`, then reference it with `model_catalog_json` in the Codex configuration used by the Happier profile. The generator clones the matching release's full model instructions, tools, context and effort metadata for all six aliases. Only identity/display fields and the independent speed controls change: the alias owns speed, so a second speed toggle is not exposed. Set the isolated profile's default model to `gpt-6.1-sol@standard`. Regenerate after upgrading the Codex CLI, and refresh Happier's model list. Existing sessions may retain their original selection.
 
-This uses the stock Happier apps and their existing model/Thinking picker. It requires no Happier fork or custom iPhone distribution. Validate selections through an actual Happier session and the Studio outbound audit. Do not infer runtime support from a model label alone.
+The picker also includes **Kimi K3.1 Pro** and **Kimi K3.1 Pro Highspeed** through
+the `moonshot/` API Platform connection. Kimi Thinking offers Low, High and Max;
+Highspeed is a distinct model ID, not an OpenAI service tier. The native catalog
+generator uses the matching CLI's standard function/custom-tool contract for
+these models, disables Lite/code-only and hosted OpenAI tool features, and keeps
+the agent/tool instructions with an accurate Kimi identity. Both K3.1 variants
+completed live Codex tool loops; Highspeed also executed a freeform apply_patch
+round trip. Kimi runs through Responses-to-Chat translation, so begin a new
+session when changing between OpenAI and Kimi: OpenAI encrypted reasoning and
+account-scoped tools are not established as portable to Moonshot. The curated
+Anthropic catalog continues to contain only Claude models.
+
+This uses the stock Happier apps and their existing model/Thinking picker. It requires no Happier fork or custom iPhone distribution. Validate selections through an actual Happier session and the Studio outbound audit. Do not infer runtime support from a model label alone. Refresh the model list or start a new session after installing a generated native catalog; already-running Codex app servers may retain their original catalog.
 
 Claude discovery uses canonical model IDs so the runtime's reported ID matches the picker row. In curated mode those two canonical IDs resolve to the Claude OAuth account pool; explicit operator aliases take precedence. To keep Claude's running-session SDK catalog equally small, configure its user-level `modelPicker` with `replaceBuiltInOptions: true` and two `options` rows (`model`/`label`) for `claude-opus-5-5` and `claude-fable-5-1`. This is a display preference; it does not restrict subagent routing as `availableModels` would.
 

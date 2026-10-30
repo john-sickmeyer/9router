@@ -55,5 +55,14 @@ class HealthTest(unittest.TestCase):
             if model['id'].startswith('gpt-'): model['id'] = 'cx/' + model['id']
         with self.assertRaisesRegex(RuntimeError, 'disabled'): self.check(baseline)
 
+    def test_preserves_kimi_catalog_and_all_account_identities(self):
+        self.state['kimiModels'] = ['moonshot/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro-highspeed']
+        self.models += [{'id': model} for model in self.state['kimiModels']]
+        self.state['connectionIdentities'] = self.state['accounts'] + [{'id': 'kimi-account', 'provider': 'moonshot'}]
+        baseline = self.check()
+        self.assertEqual(len(baseline), 3)
+        self.models.pop()
+        with self.assertRaisesRegex(RuntimeError, 'catalog'): self.check(baseline)
+
 
 if __name__ == '__main__': unittest.main()

@@ -12,7 +12,7 @@ import re
 import sys
 import urllib.request
 
-def build_catalog(catalog, config):
+def build_catalog(catalog, config, kimi_config=None):
     # The central Studio config owns membership and speeds. Clone full native
     # metadata so aliases retain tools, instructions, context, and effort support.
     models = re.findall(r'id: "cx/([^"]+)", provider: "codex", name: "([^"]+)"', config)
@@ -40,6 +40,33 @@ def build_catalog(catalog, config):
             entry["service_tiers"] = []
             entry["additional_speed_tiers"] = []
             selected.append(entry)
+    if kimi_config:
+        # Use the CLI's standard function/custom-tool contract for third-party
+        # models, not GPT-6's backend-specific Lite/code-mode contract.
+        generic = available.get("gpt-5.5")
+        if not generic or generic.get("use_responses_lite") or generic.get("tool_mode"):
+            raise ValueError("Codex standard-tool template is missing or incompatible")
+        kimi_models = re.findall(r'id: "(moonshot/[^"]+)", provider: "moonshot", name: "([^"]+)"', kimi_config)
+        efforts = json.loads(re.search(r'MOONSHOT_K3_EFFORTS = (\[[^;]+\]);', kimi_config)[1])
+        context = int(re.search(r'MOONSHOT_K3_CONTEXT = (\d+);', kimi_config)[1])
+        if len(kimi_models) != 2: raise ValueError("Kimi picker metadata is incomplete")
+        for slug, name in kimi_models:
+            entry = copy.deepcopy(generic)
+            entry.update(slug=slug, display_name=name, description="Kimi API Platform via 9Router. Choose Thinking separately.",
+                prefer_websockets=False, use_responses_lite=False, tool_mode=None,
+                multi_agent_version=None, multi_agent_reasoning_effort=None,
+                support_verbosity=False, default_verbosity=None,
+                context_window=context, max_context_window=context, default_reasoning_level="high",
+                supported_reasoning_levels=[{"effort": e, "description": e.capitalize() + " reasoning effort"} for e in efforts],
+                supported_in_api=True, visibility="list", priority=len(selected) + 1,
+                availability_nux=None, upgrade=None, default_service_tier=None, service_tiers=[], additional_speed_tiers=[],
+                supports_search_tool=False, supports_reasoning_effort_updates=False, supports_image_detail_original=False,
+                supports_reasoning_summary_parameter=False, experimental_supported_tools=[])
+            # Retain the native agent/tool instructions without a false GPT identity.
+            messages = entry.get("model_messages", {})
+            if isinstance(messages.get("instructions_template"), str):
+                messages["instructions_template"] = messages["instructions_template"].replace("based on GPT-5", "using Kimi")
+            selected.append(entry)
     return {"models": selected}
 
 
@@ -55,7 +82,7 @@ def main():
         catalog = json.load(response)
     root = pathlib.Path(__file__).resolve().parents[1]
     config = (root / "open-sse/config/studioControls.js").read_text()
-    selected = build_catalog(catalog, config)
+    selected = build_catalog(catalog, config, (root / "open-sse/config/moonshot.js").read_text())
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".next")
     temporary.write_text(json.dumps(selected, indent=2) + "\n")

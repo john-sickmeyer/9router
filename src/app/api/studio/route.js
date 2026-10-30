@@ -4,11 +4,13 @@ import { isOpenaiPoolEnabled, OPENAI_POOL_MODELS, OPENAI_CURRENT_EFFORTS, OPENAI
 import { controlStatus } from "@/lib/studio/audit";
 import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { connectionSupportsControls } from "open-sse/services/studioControls.js";
+import { STUDIO_KIMI_MODELS } from "open-sse/config/moonshot.js";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const connections = await getProviderConnections({ isActive: true });
+  const allConnections = await getProviderConnections();
+  const connections = allConnections.filter(c => c.isActive !== false);
   const choices = [];
   for (const [provider, prefix, models] of [["codex", "cx", CODEX_EFFORTS], ["claude", "cc", CLAUDE_EFFORTS]]) {
     for (const [model, efforts] of Object.entries(models)) {
@@ -28,6 +30,8 @@ export async function GET() {
   return Response.json({
     release: process.env.STUDIO_RELEASE || "development",
     choices,
+    connectionIdentities: allConnections.map(c => ({ id: c.id, provider: c.provider })),
+    kimiModels: connections.some(c => c.provider === "moonshot") ? STUDIO_KIMI_MODELS.map(m => m.id) : [],
     poolChoices: isOpenaiPoolEnabled() ? OPENAI_POOL_MODELS.map(id => ({ id,
       speeds: ["standard", "fast", "ultrafast"], efforts: OPENAI_CURRENT_EFFORTS })) : [],
     openaiPool: {
