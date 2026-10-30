@@ -1,6 +1,6 @@
 import { connectionSupportsControls, controlLockKey } from "open-sse/services/studioControls.js";
 import { billingUnavailable, claimBillingRetry } from "@/lib/studio/openaiBilling.js";
-import { getProviderConnections, getProviderConnectionById, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
+import { getProviderConnections, getProviderConnectionById, validateApiKey, updateProviderConnection, getSettings, getProxyPools, getOpenaiCreditBalance } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil, getModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
@@ -75,6 +75,8 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     }
 
     const allConnections = await getProviderConnections({ provider: providerId, isActive: true });
+    const credit = providerId === "openai" ? await getOpenaiCreditBalance() : null;
+    const creditExhausted = c => credit?.exhausted && credit.connectionIds.includes(c.id);
     const connections = allConnections.filter(c => connectionSupportsControls(c, options.requestControls));
     if (allConnections.length && !connections.length && options.requestControls) return { noEligibleControls: true };
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
@@ -90,7 +92,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     // Filter out model-locked, excluded, and Antigravity quota-exhausted connections.
     const availableConnections = connections.filter(c => {
-      if (billingUnavailable(c)) return false;
+      if (billingUnavailable(c) || creditExhausted(c)) return false;
       if (excludeSet.has(c.id)) return false;
       if (isLocked(c)) return false;
       const enabled = c.providerSpecificData?.enabledModels;
@@ -119,7 +121,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     });
 
     if (availableConnections.length === 0) {
-      if (connections.every(c => billingUnavailable(c))) return { billingBlocked: true };
+      if (connections.every(c => billingUnavailable(c) || creditExhausted(c))) return { billingBlocked: true };
       // Find earliest persistent lock or lazy Antigravity quota-cache reset for retry timing.
       const lockedConns = connections.filter(c => isLocked(c));
       const expiries = lockedConns.map(c => [getModelLockUntil(c, model), getModelLockUntil(c, lockKey)]

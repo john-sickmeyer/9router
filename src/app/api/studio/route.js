@@ -1,4 +1,4 @@
-import { getProviderConnections } from "@/lib/localDb";
+import { getProviderConnections, getOpenaiCreditBalance } from "@/lib/localDb";
 import { refreshControlCapabilities, refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities";
 import { isOpenaiPoolEnabled, OPENAI_POOL_MODELS, OPENAI_CURRENT_EFFORTS, OPENAI_METADATA_REVIEWED_AT, OPENAI_METADATA_TTL_MS } from "open-sse/config/openaiPlatform.js";
 import { controlStatus } from "@/lib/studio/audit";
@@ -35,6 +35,7 @@ export async function GET() {
     poolChoices: isOpenaiPoolEnabled() ? OPENAI_POOL_MODELS.map(id => ({ id,
       speeds: ["standard", "fast", "ultrafast"], efforts: OPENAI_CURRENT_EFFORTS })) : [],
     openaiPool: {
+      credit: await getOpenaiCreditBalance(),
       enabled: isOpenaiPoolEnabled(), priority: ["openai", "codex"],
       metadataReviewedAt: OPENAI_METADATA_REVIEWED_AT,
       metadataStale: Date.now() - Date.parse(OPENAI_METADATA_REVIEWED_AT) > OPENAI_METADATA_TTL_MS,

@@ -3,7 +3,7 @@ import { CONTROL_EVENTS as E, MAX_CONTROL_FRAME_BYTES, SPEEDS, CODEX_UNCONFIRMED
 // Inspect only envelope metadata. Tool calls, output, and reasoning are never logged.
 // Keep sent controls distinct from provider confirmation. ChatGPT's Codex backend
 // can return default even when controlled measurements show acceleration.
-export async function observeControlResponse(response, controls, onEvent = async () => {}) {
+export async function observeControlResponse(response, controls, onEvent = async () => {}, billingContext) {
   if (!controls || !response.ok) return response;
   const codex = controls.provider === "codex";
   const openai = controls.provider === "openai";
@@ -40,6 +40,10 @@ export async function observeControlResponse(response, controls, onEvent = async
     const envelope = responses ? data.response || data : data.message || data;
     if (responses && ["failed", "incomplete"].includes(envelope.status)) return reject("Upstream response did not complete successfully");
     const speed = responses ? envelope.service_tier : envelope.usage?.speed || data.usage?.speed;
+    if (openai && billingContext) {
+      if (speed) Object.assign(billingContext, { serviceTier: speed, serviceTierSource: "reported" });
+      if (envelope.usage) billingContext.usage = envelope.usage;
+    }
     if (speed) reportedTier = SPEEDS[speed] || speed;
     reportedEffort = envelope.reasoning?.effort || envelope.output_config?.effort || reportedEffort;
     if (openai && data.choices?.some(choice => choice.finish_reason)) chatFinished = true;

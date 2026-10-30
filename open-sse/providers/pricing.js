@@ -1,3 +1,5 @@
+import { OPENAI_POOL_MODELS, OPENAI_POOL_CONTEXT, OPENAI_PRICE_TIER_MULTIPLIERS, OPENAI_LONG_CONTEXT_PRICE } from "../config/openaiPlatform.js";
+
 // Pricing rates for AI models — all rates in $/1M tokens
 //
 // Fallback order (first match wins):
@@ -468,34 +470,42 @@ export function formatCost(cost) {
  * @param {object} pricing
  * @returns {number} cost in dollars
  */
-export function calculateCostFromTokens(tokens, pricing) {
+export function calculateCostFromTokens(tokens, pricing, context = {}) {
   if (!tokens || !pricing) return 0;
 
   let cost = 0;
 
   const inputTokens = tokens.prompt_tokens || tokens.input_tokens || 0;
+  const openaiPool = context.provider === "openai" && OPENAI_POOL_MODELS.includes(context.model);
+  const tier = openaiPool ? (OPENAI_PRICE_TIER_MULTIPLIERS[context.serviceTier] ?? 1) : 1;
+  const longContext = openaiPool && inputTokens > OPENAI_POOL_CONTEXT;
+  const inputMultiplier = tier * (longContext ? OPENAI_LONG_CONTEXT_PRICE.input : 1);
+  const outputMultiplier = tier * (longContext ? OPENAI_LONG_CONTEXT_PRICE.output : 1);
   const cachedTokens = tokens.cached_tokens || tokens.cache_read_input_tokens || 0;
   const cacheCreationTokens = tokens.cache_creation_input_tokens || 0;
   // prompt_tokens is cache-inclusive (see canonicalizeUsage): cached + cache_creation
   // are subsets, so subtract both to avoid charging them at the full input rate.
   const nonCachedInput = Math.max(0, inputTokens - cachedTokens - cacheCreationTokens);
 
-  cost += nonCachedInput * (pricing.input / 1000000);
+  cost += nonCachedInput * (pricing.input / 1000000) * inputMultiplier;
 
   if (cachedTokens > 0) {
-    cost += cachedTokens * ((pricing.cached || pricing.input) / 1000000);
+    cost += cachedTokens * ((pricing.cached ?? pricing.input) / 1000000) * inputMultiplier;
   }
 
   const outputTokens = tokens.completion_tokens || tokens.output_tokens || 0;
-  cost += outputTokens * (pricing.output / 1000000);
+  cost += outputTokens * (pricing.output / 1000000) * outputMultiplier;
 
   const reasoningTokens = tokens.reasoning_tokens || 0;
-  if (reasoningTokens > 0) {
+  // OpenAI output_tokens already includes its reasoning_tokens subset.
+  if (reasoningTokens > 0 && !["openai", "codex"].includes(context.provider)) {
     cost += reasoningTokens * ((pricing.reasoning || pricing.output) / 1000000);
   }
 
   if (cacheCreationTokens > 0) {
-    cost += cacheCreationTokens * ((pricing.cache_creation || pricing.input) / 1000000);
+    const longWrites = context.provider === "openai" ? Math.min(cacheCreationTokens, tokens.cache_creation_12h_tokens || 0) : 0;
+    const writeRate = pricing.cache_creation ?? pricing.input;
+    cost += ((cacheCreationTokens - longWrites) * writeRate + longWrites * writeRate * 2) / 1000000 * inputMultiplier;
   }
 
   return cost;

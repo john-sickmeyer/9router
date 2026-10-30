@@ -17,5 +17,6 @@ export {
   getCustomModels, addCustomModel, deleteCustomModel,
   getMitmAlias, setMitmAliasAll,
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
+  getOpenaiCreditBalance, setOpenaiCreditBalance,
   exportDb, importDb,
 } from "@/lib/db/index.js";

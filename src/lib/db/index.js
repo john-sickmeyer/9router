@@ -48,6 +48,8 @@ export {
 } from "./repos/aliasRepo.js";
 
 // Pricing
+export { getOpenaiCreditBalance, setOpenaiCreditBalance } from "./repos/openaiCreditsRepo.js";
+
 export {
   getPricing, getPricingForModel, updatePricing, resetPricing, resetAllPricing,
 } from "./repos/pricingRepo.js";

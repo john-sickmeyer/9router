@@ -34,9 +34,11 @@ export function extractUsageFromResponse(responseBody) {
     return {
       prompt_tokens: responseBody.usage.input_tokens || 0,
       completion_tokens: responseBody.usage.output_tokens || 0,
-      cached_tokens: responseBody.usage.cached_tokens ?? responseBody.usage.input_tokens_details?.cached_tokens,
+      cached_tokens: responseBody.usage.cached_tokens ?? (responseBody.usage.input_tokens_details ? responseBody.usage.input_tokens_details.cached_tokens ?? 0 : undefined),
       cache_read_input_tokens: responseBody.usage.cache_read_input_tokens,
-      cache_creation_input_tokens: responseBody.usage.cache_creation_input_tokens
+      cache_creation_input_tokens: responseBody.usage.cache_creation_input_tokens ?? responseBody.usage.input_tokens_details?.cache_write_tokens,
+      cache_creation_12h_tokens: responseBody.usage.input_tokens_details?.cache_write_tokens_details?.ttl_12h_tokens,
+      reasoning_tokens: responseBody.usage.output_tokens_details?.reasoning_tokens,
     };
   }
 
@@ -115,7 +117,12 @@ export function formatDoneLine({ usage, latency }) {
   return `DONE ${latency?.total ?? 0}ms${ttftStr} · ${inStr} · OUT ${outTok}`;
 }
 
-export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false }) {
+export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, endpoint, label = "USAGE", silent = false, billingContext }) {
+  // Original API usage retains cache-write and reasoning details that translators
+  // may discard. Only numeric usage and tier metadata persist.
+  if (provider === "openai" && billingContext?.usage) {
+    tokens = extractUsageFromResponse({ usage: billingContext.usage }) || tokens;
+  }
   if (!tokens || typeof tokens !== "object") return;
 
   const inTokens = tokens.input_tokens ?? tokens.prompt_tokens ?? 0;
@@ -140,6 +147,7 @@ export function saveUsageStats({ provider, model, tokens, connectionId, apiKey, 
     provider: provider || "unknown",
     model: model || "unknown",
     tokens: normalized,
+    ...(billingContext ? { billingContext: { serviceTier: billingContext.serviceTier, serviceTierSource: billingContext.serviceTierSource } } : {}),
     timestamp: new Date().toISOString(),
     connectionId: connectionId || undefined,
     apiKey: apiKey || undefined,

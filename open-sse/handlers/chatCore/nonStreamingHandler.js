@@ -234,7 +234,7 @@ export function translateNonStreamingResponse(responseBody, targetFormat, source
 /**
  * Handle non-streaming response from provider.
  */
-export async function handleNonStreamingResponse({ providerResponse, provider, model, sourceFormat, targetFormat, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, trackDone, appendLog, pxpipe, reqTag, log }) {
+export async function handleNonStreamingResponse({ providerResponse, provider, model, sourceFormat, targetFormat, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, reqLogger, toolNameMap, customToolNames, trackDone, appendLog, pxpipe, reqTag, log, billingContext }) {
   trackDone();
   const contentType = providerResponse.headers.get("content-type") || "";
   let responseBody;
@@ -282,9 +282,13 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
   // Decloak tool_use names once on raw Claude body, before any translation (INPUT side)
   responseBody = decloakToolNames(responseBody, toolNameMap);
 
+  if (provider === "openai" && billingContext) {
+    if (responseBody.service_tier) Object.assign(billingContext, { serviceTier: responseBody.service_tier, serviceTierSource: "reported" });
+    if (responseBody.usage) billingContext.usage = responseBody.usage;
+  }
   const usage = extractUsageFromResponse(responseBody);
   appendLog({ tokens: usage, status: "200 OK" });
-  saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
+  saveUsageStats({ provider, model, tokens: usage, billingContext, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
   if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage, latency: { total: Date.now() - requestStartTime } }));
 
   const translatedResponse = needsTranslation(targetFormat, sourceFormat)

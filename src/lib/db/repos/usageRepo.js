@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
 import { getMeta, setMeta } from "../helpers/metaStore.js";
+import { debitOpenaiCredit } from "./openaiCreditsRepo.js";
 
 function maskApiKey(key) {
   if (!key || typeof key !== "string") return null;
@@ -133,7 +134,7 @@ async function ensureRingInitialized() {
   } catch {}
 }
 
-async function calculateCost(provider, model, tokens) {
+async function calculateCost(provider, model, tokens, billingContext) {
   if (!tokens || !provider || !model) return 0;
   try {
     const { getPricingForModel } = await import("./pricingRepo.js");
@@ -144,7 +145,7 @@ async function calculateCost(provider, model, tokens) {
     // copies drifting apart — see open-sse/providers/pricing.js for the
     // cache-inclusive prompt_tokens convention this assumes).
     const { calculateCostFromTokens } = await import("open-sse/providers/pricing.js");
-    return calculateCostFromTokens(tokens, pricing);
+    return calculateCostFromTokens(tokens, pricing, { ...billingContext, provider, model });
   } catch (e) {
     console.error("Error calculating cost:", e);
     return 0;
@@ -245,7 +246,7 @@ export async function saveRequestUsage(entry) {
     const db = await getAdapter();
 
     if (!entry.timestamp) entry.timestamp = new Date().toISOString();
-    entry.cost = await calculateCost(entry.provider, entry.model, entry.tokens);
+    entry.cost = await calculateCost(entry.provider, entry.model, entry.tokens, entry.billingContext);
 
     const tokens = entry.tokens || {};
     const promptTokens = tokens.prompt_tokens || tokens.input_tokens || 0;
@@ -286,9 +287,11 @@ export async function saveRequestUsage(entry) {
           entry.timestamp, entry.provider || null, entry.model || null,
           entry.connectionId || null, entry.apiKey || null, entry.endpoint || null,
           promptTokens, completionTokens, entry.cost || 0, entry.status || "ok",
-          stringifyJson(tokens), stringifyJson({}),
+          stringifyJson(tokens), stringifyJson(entry.billingContext ? { billing: entry.billingContext } : {}),
         ]
       );
+
+      debitOpenaiCredit(db, entry);
 
       const dateKey = getLocalDateKey(entry.timestamp);
       const row = db.get(`SELECT data FROM usageDaily WHERE dateKey = ?`, [dateKey]);

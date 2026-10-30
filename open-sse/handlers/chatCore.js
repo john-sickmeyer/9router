@@ -543,14 +543,15 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     return { ...createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers)), upstreamError };
   }
 
+  const billingContext = provider === "openai" ? { serviceTier: finalBody?.service_tier || "default", serviceTierSource: "requested" } : undefined;
   try {
-    providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined);
+    providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined, billingContext);
   } catch (error) {
     trackPendingRequest(model, provider, connectionId, false, true);
     return { ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message), fallbackSafe: false };
   }
 
-  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
+  const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log, billingContext };
   const appendLog = (extra) => appendRequestLog({ model, provider, connectionId, ...extra }).catch(() => { });
   const trackDone = () => trackPendingRequest(model, provider, connectionId, false);
 

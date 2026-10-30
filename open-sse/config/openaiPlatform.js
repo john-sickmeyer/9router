@@ -12,6 +12,9 @@ export const OPENAI_CURRENT_MODELS = [
     .map(([id, name]) => ({ id, name, thinkingLevels: ["none", ...OPENAI_CURRENT_EFFORTS] })),
 ];
 export const OPENAI_POOL_CONTEXT = 272000;
+// https://developers.openai.com/api/docs/pricing (reviewed 2026-10-30).
+export const OPENAI_PRICE_TIER_MULTIPLIERS = { default: 1, standard: 1, priority: 2, fast: 2, ultrafast: 6, flex: 0.5, batch: 0.5 };
+export const OPENAI_LONG_CONTEXT_PRICE = { input: 2, output: 1.5 };
 export const OPENAI_METADATA_TTL_MS = 30 * 86400000;
 export const OPENAI_BILLING_CODES = new Set([
   "credit_balance_exhausted", "insufficient_quota", "organization_spend_limit_exceeded",

@@ -49,6 +49,9 @@ def validate(build, revision, log_path):
                 checks['transport_tracking'] = transport == {'version': 1, 'activeCount': 0, 'pending': []}
                 checks['protected_status'] = call('/api/studio')[0] == 401
                 checks['protected_billing_recovery'] = call('/api/studio/openai-pool', payload={'action': 'retry-billing', 'connectionId': 'fixture'})[0] == 401
+                checks['protected_credit_balance'] = call('/api/studio/openai-pool')[0] == 401 and call('/api/studio/openai-pool', payload={'action': 'set-credit-balance', 'balanceUsd': 1, 'connectionIds': ['fixture']})[0] == 401
+                code, content = call('/api/studio/openai-pool', admin=True)
+                checks['credit_balance_unconfigured'] = code == 200 and json.loads(content).get('credit') is None
                 code, content = call('/api/studio/updates', admin=True)
                 checks['update_health'] = code == 200 and json.loads(content).get('status') == 'up-to-date'
                 checks['protected_update_health'] = call('/api/studio/updates')[0] == 401

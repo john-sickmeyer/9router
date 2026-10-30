@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], replies: [], aliases: {}, allow: null }));
+const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], replies: [], aliases: {}, allow: null, usage: [] }));
 vi.mock("@/lib/localDb", () => ({
   getSettings: async () => ({ requireApiKey: false }),
+  getOpenaiCreditBalance: async () => null,
   getProviderConnections: async (filter = {}) => structuredClone(fx.accounts.filter(c =>
     (!filter.provider || c.provider === filter.provider) && (filter.isActive === undefined || c.isActive === filter.isActive))),
   getProviderConnectionById: async id => structuredClone(fx.accounts.find(c => c.id === id)),
@@ -16,7 +17,7 @@ vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: 
 vi.mock("@/lib/studio/capabilities", () => ({ refreshControlCapabilities: async () => [], refreshOpenaiControlCapabilities: async () => [] }));
 vi.mock("@/lib/studio/audit.js", () => ({ isControlDraining: () => false, recordControl: async e => fx.events.push(e) }));
 vi.mock("@/sse/services/tokenRefresh.js", () => ({ checkAndRefreshToken: async (_p, c) => c, updateProviderCredentials: vi.fn() }));
-vi.mock("@/lib/usageDb.js", () => ({ trackPendingRequest: vi.fn(), appendRequestLog: async () => {}, saveRequestDetail: async () => {}, saveRequestUsage: async () => {} }));
+vi.mock("@/lib/usageDb.js", () => ({ trackPendingRequest: vi.fn(), appendRequestLog: async () => {}, saveRequestDetail: async () => {}, saveRequestUsage: async entry => { fx.usage.push(entry); } }));
 vi.mock("../../open-sse/utils/requestLogger.js", () => ({ createRequestLogger: async () => ({ logClientRawRequest() {}, logRawRequest() {}, logTargetRequest() {}, logProviderResponse() {}, logConvertedResponse() {}, logError() {} }) }));
 vi.mock("../../open-sse/utils/proxyFetch.js", async original => ({ ...await original(), proxyAwareFetch: (...args) => global.fetch(...args) }));
 
@@ -52,7 +53,7 @@ async function send(body = {}, model = "gpt-6.1-sol@standard") {
 beforeEach(() => {
   vi.stubEnv("STUDIO_OPENAI_POOL_ENABLED", "1");
   fx.accounts = [account("api"), account("oauth", "codex")];
-  fx.sent = []; fx.events = []; fx.replies = []; fx.aliases = {}; fx.allow = null;
+  fx.sent = []; fx.events = []; fx.replies = []; fx.aliases = {}; fx.allow = null; fx.usage = [];
   vi.stubGlobal("fetch", vi.fn(async (url, options) => {
     const body = JSON.parse(options.body);
     fx.sent.push({ url: String(url), body, account: options.headers.Authorization?.replace("Bearer ", "") });
@@ -64,6 +65,24 @@ beforeEach(() => {
 afterEach(() => { for (const a of fx.accounts) releaseBillingRetry(a.id); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
 describe("OpenAI-first real request pipeline", () => {
+  it.each([true, false])("records actual served tier and original cache-write usage (stream=%s)", async stream => {
+    fx.replies.push(body => {
+      const event = complete(body);
+      event.response.service_tier = "default";
+      event.response.usage = { input_tokens: 12000, output_tokens: 1200,
+        input_tokens_details: { cached_tokens: 4000, cache_write_tokens: 7000,
+          cache_write_tokens_details: { ttl_30m_tokens: 3000, ttl_12h_tokens: 4000 } },
+        output_tokens_details: { reasoning_tokens: 777 } };
+      return sse(frame(event));
+    });
+    const response = await send({ stream }, "gpt-6.1-sol@ultrafast");
+    expect(response.status).toBe(200); await response.text();
+    await vi.waitFor(() => expect(fx.usage).toHaveLength(1));
+    expect(fx.usage[0]).toMatchObject({ provider: "openai",
+      billingContext: { serviceTier: "default", serviceTierSource: "reported" },
+      tokens: { prompt_tokens: 12000, cached_tokens: 4000, cache_creation_input_tokens: 7000,
+        cache_creation_12h_tokens: 4000, completion_tokens: 1200, reasoning_tokens: 777 } });
+  });
   it.each(OPENAI_POOL_MODELS.flatMap(model => ["standard", "fast", "ultrafast"].map(speed => ({ model, speed }))))
   ("uses API Responses for $model@$speed and preserves max", async ({ model, speed }) => {
     const response = await send({}, `${model}@${speed}`);

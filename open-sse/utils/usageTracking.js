@@ -206,6 +206,7 @@ export function canonicalizeUsage(usage) {
     cache_creation_input_tokens: cacheCreation,
   };
   if (reasoning > 0) result.reasoning_tokens = reasoning;
+  if (usage.cache_creation_12h_tokens !== undefined) result.cache_creation_12h_tokens = num(usage.cache_creation_12h_tokens);
   return result;
 }
 
