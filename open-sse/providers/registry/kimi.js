@@ -61,7 +61,7 @@ export default {
   ],
   models: [
     { id: "k3", name: "Kimi K3 (Code)" },
-    // Kimi Code subscription stable ids (map to K2.7 Code backend)
+    // Kimi Code subscription stable ids.
     { id: "kimi-for-coding", name: "Kimi for Coding" },
     { id: "kimi-for-coding-highspeed", name: "Kimi for Coding Highspeed" },
   ],
