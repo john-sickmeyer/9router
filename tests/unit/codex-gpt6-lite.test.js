@@ -45,7 +45,7 @@ describe("Codex GPT-6 Sol/Luna transport", () => {
   it("sends gpt-6.1-terra with the Lite header and shape", () => {
     const executor = new CodexExecutor();
     const body = executor.transformRequest("gpt-6.1-terra", {
-      model: "gpt-6.1-terra", input: "hello", reasoning: { effort: "ultra" },
+      model: "gpt-6.1-terra", input: "hello", reasoning: { effort: "max" },
     }, true, credentials);
     const headers = executor.buildHeaders(credentials, true, null, "gpt-6.1-terra");
 
@@ -198,9 +198,9 @@ describe("Codex GPT-6 Sol/Luna transport", () => {
     }, true, credentials)).toThrow(/Unsupported effort/);
   });
 
-  it("rejects raw Ultra because orchestration belongs to the native runtime", () => {
-    expect(() => new CodexExecutor().transformRequest("gpt-6.1-sol", {
-      model: "gpt-6.1-sol", input: "hello", reasoning: { effort: "ultra" },
+  it.each(["gpt-6.1-sol", "gpt-6.1-terra"])("rejects raw Ultra for %s because orchestration belongs to the native runtime", (model) => {
+    expect(() => new CodexExecutor().transformRequest(model, {
+      model, input: "hello", reasoning: { effort: "ultra" },
     }, true, credentials)).toThrow(/runtime orchestration mode/);
   });
 

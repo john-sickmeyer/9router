@@ -22,6 +22,9 @@ def git(path, *args):
 
 
 class Release:
+    class DrainTimeout(RuntimeError):
+        pass
+
     def __init__(self, revision):
         self.revision = revision
         self.pending = []
@@ -131,6 +134,40 @@ class UpdateTest(unittest.TestCase):
         self.assertEqual(self.job.state['phase'], 'merge')
         self.assert_unchanged()
         self.assertEqual(self.build_calls, [])
+        failure = self.job.state['lastFailure']
+        self.assertEqual(failure['conflicts'], ['custom.txt'])
+        self.assertEqual(self.job.state['status'], 'needs-resolution')
+        with (self.root / 'release.lock').open('a') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['error'], failure['error'])
+        self.assertIn('release operation', self.job.state['deferredReason'])
+        self.assertEqual(self.job.state['lastFailure'], failure)
+        with mock.patch.object(self.job, 'prepare', side_effect=AssertionError('Retried identical conflict')):
+            self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['status'], 'needs-resolution')
+        self.assertIsNone(self.job.state['retryAfter'])
+
+    def test_new_upstream_retries_after_conflict(self):
+        self.new_version(conflict=True)
+        self.assertEqual(self.job.run(), 1)
+        (self.upstream / 'custom.txt').write_text('base\n')
+        (self.upstream / 'package.json').write_text('{"version":"1.2.0"}')
+        git(self.upstream, 'commit', '-am', 'Resolve upstream incompatibility')
+        git(self.upstream, 'tag', 'v1.2.0')
+        self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['status'], 'updated')
+        self.assertIsNone(self.job.state['lastFailure'])
+
+    def test_new_fork_base_retries_after_conflict(self):
+        self.new_version(conflict=True)
+        self.assertEqual(self.job.run(), 1)
+        (self.source / 'custom.txt').write_text('upstream conflict\n')
+        git(self.source, 'commit', '-am', 'Resolve fork incompatibility')
+        git(self.source, 'push', 'origin', 'studio')
+        self.release.revision = git(self.source, 'rev-parse', 'HEAD')
+        self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['status'], 'updated')
 
     def test_test_failure_never_activates_and_retries_with_backoff(self):
         self.new_version()
@@ -179,6 +216,21 @@ class UpdateTest(unittest.TestCase):
         self.release.fail = True
         self.assertEqual(self.job.run(), 1)
         self.assert_unchanged()
+
+    def test_transport_worker_attempts_drain_and_reuses_candidate_after_timeout(self):
+        self.new_version()
+        self.release.status = lambda: {'release': self.release.revision, 'pending': ['stale'],
+            'transport': {'version': 1, 'activeCount': 1, 'pending': ['active']}}
+        with mock.patch.object(self.release, 'activate', side_effect=self.release.DrainTimeout('Requests still active')):
+            self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['status'], 'deferred')
+        self.assertIsNotNone(self.job.state['ready'])
+        self.assertIsNone(self.job.state.get('lastFailure'))
+        self.assert_unchanged()
+        calls = len(self.build_calls)
+        self.assertEqual(self.job.run(), 0)
+        self.assertEqual(self.job.state['status'], 'updated')
+        self.assertEqual(len(self.build_calls), calls)
 
     def test_failed_push_recovers_without_redeploying(self):
         self.new_version()

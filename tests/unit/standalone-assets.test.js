@@ -41,11 +41,15 @@ describe("standalone build assets", () => {
   it("copies the request-sanitizing server wrapper into the standalone output", () => {
     const projectRoot = createBuildFixture(".next");
     writeFileSync(join(projectRoot, "custom-server.js"), "wrapper");
+    mkdirSync(join(projectRoot, "scripts"));
+    writeFileSync(join(projectRoot, "scripts", "studio-transport.cjs"), "transport tracker");
 
     copyStandaloneAssets({ projectRoot, distDir: ".next" });
 
     expect(readFileSync(join(projectRoot, ".next", "standalone", "custom-server.js"), "utf8"))
       .toBe("wrapper");
+    expect(readFileSync(join(projectRoot, ".next", "standalone", "scripts", "studio-transport.cjs"), "utf8"))
+      .toBe("transport tracker");
   });
 
   it("does not modify workspace-traced CLI builds", () => {

@@ -77,6 +77,36 @@ class ReleaseTest(unittest.TestCase):
         self.assertEqual((self.root / 'current').resolve(), self.old)
         self.assertFalse((self.root / 'maintenance').exists())
 
+    def test_transport_drain_waits_for_http_then_ignores_stale_audit(self):
+        states = [
+            {'pending': [], 'transport': {'version': 1, 'activeCount': 1, 'pending': ['active']}},
+            {'pending': ['stale-audit'], 'transport': {'version': 1, 'activeCount': 0, 'pending': []}},
+        ]
+        with mock.patch.object(release, 'status', side_effect=states), mock.patch.object(release, 'health', return_value=[]):
+            release.activate(self.new.name, False)
+        release.time.sleep.assert_called_once_with(1)
+        release.stop.assert_called_once()
+        self.assertEqual((self.root / 'current').resolve(), self.new)
+        self.assertFalse((self.root / 'maintenance').exists())
+
+    def test_invalid_transport_state_never_stops_the_service(self):
+        for index, transport in enumerate([None, [], {}, {'version': 2, 'activeCount': 0, 'pending': []},
+                {'version': 1, 'activeCount': 0, 'pending': ['active']},
+                {'version': 1, 'activeCount': False, 'pending': []}]):
+            with self.subTest(transport=transport), mock.patch.object(release.time, 'strftime', return_value=str(index)), mock.patch.object(release, 'status', return_value={
+                    'pending': [], 'transport': transport}), mock.patch.object(release, 'health', return_value=[]):
+                with self.assertRaisesRegex(RuntimeError, 'Invalid transport'):
+                    release.activate(self.new.name, False)
+            release.stop.assert_not_called()
+            self.assertEqual((self.root / 'current').resolve(), self.old)
+
+    def test_transport_timeout_uses_typed_deferral(self):
+        with mock.patch.object(release, 'status', return_value={'pending': [], 'transport': {
+                'version': 1, 'activeCount': 1, 'pending': ['streaming']}}), mock.patch.object(release, 'health', return_value=[]):
+            with self.assertRaises(release.DrainTimeout):
+                release.activate(self.new.name, False)
+        release.stop.assert_not_called()
+
     def test_interrupted_activation_recovers_snapshot_before_reopening(self):
         backup = self.root / 'snapshot'
         backup.mkdir()

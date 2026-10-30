@@ -1,4 +1,4 @@
-import { cpSync, existsSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
@@ -34,6 +34,8 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
   const serverWrapperSource = resolve(projectRoot, "custom-server.js");
   const serverWrapperDestination = resolve(standaloneDir, "custom-server.js");
   if (existsSync(serverWrapperSource)) {
+    mkdirSync(resolve(standaloneDir, "scripts"), { recursive: true });
+    cpSync(resolve(projectRoot, "scripts/studio-transport.cjs"), resolve(standaloneDir, "scripts/studio-transport.cjs"));
     cpSync(serverWrapperSource, serverWrapperDestination, { force: true });
     console.log(`[standalone-assets] Copied custom-server.js to ${serverWrapperDestination}`);
   }

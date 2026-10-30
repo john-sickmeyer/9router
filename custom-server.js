@@ -3,6 +3,8 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
+const { createTransportTracker } = require("./scripts/studio-transport.cjs");
+const transport = globalThis[Symbol.for("9router.studio.transport")] ||= createTransportTracker();
 
 const origCreate = http.createServer.bind(http);
 
@@ -70,7 +72,7 @@ http.createServer = (...args) => {
     req.headers["x-9r-real-ip"] = ip;
     req.headers["x-9r-peer-token"] = PEER_TOKEN;
     if (viaProxy) req.headers["x-9r-via-proxy"] = "1";
-    return handler(req, res);
+    return transport.handle(req, res, handler);
   };
   const server = origCreate(...rest, wrapped);
   server.once("listening", () => {
@@ -89,37 +91,38 @@ http.createServer = (...args) => {
       socket.destroy();
       return true;
     }
-    const chunks = [head];
-    let received = head.length;
-    const serve = () => {
-      // Replay the upgraded request through the existing HTTP/1.1 handler.
-      const replay = new http.IncomingMessage(socket);
-      Object.assign(replay, { method: req.method, url: req.url, headers: req.headers, complete: true });
-      if (received) replay.push(Buffer.concat(chunks, received).subarray(0, contentLength));
-      replay.push(null);
-      const res = new http.ServerResponse(replay);
-      res.shouldKeepAlive = false;
-      res.assignSocket(socket);
-      res.once("finish", () => socket.end());
-      Promise.resolve().then(() => wrapped(replay, res)).catch((error) => {
-        console.error("Failed to downgrade h2c request", error);
-        socket.destroy();
-      });
-    };
-    if (received >= contentLength) serve();
-    else {
-      socket.on("data", function readBody(chunk) {
-        chunks.push(chunk);
-        received += chunk.length;
-        if (received < contentLength) return;
-        socket.off("data", readBody);
-        serve();
-      });
-      socket.resume();
-    }
     delete req.headers.upgrade;
     delete req.headers["http2-settings"];
     req.headers.connection = "close";
+    // Start admission/tracking at the headers, including while an upload is pending.
+    const replay = new http.IncomingMessage(socket);
+    Object.assign(replay, { method: req.method, url: req.url, headers: req.headers });
+    const res = new http.ServerResponse(replay);
+    res.shouldKeepAlive = false;
+    res.assignSocket(socket);
+    res.once("finish", () => socket.end());
+    let received = 0;
+    const readBody = (chunk) => {
+      const part = chunk.subarray(0, contentLength - received);
+      received += part.length;
+      if (part.length) replay.push(part);
+      if (received === contentLength) {
+        socket.off("data", readBody);
+        replay.complete = true;
+        replay.push(null);
+      }
+    };
+    socket.on("data", readBody);
+    socket.once("close", () => {
+      socket.off("data", readBody);
+      replay.destroy();
+    });
+    readBody(head);
+    Promise.resolve().then(() => wrapped(replay, res)).catch((error) => {
+      console.error("Failed to downgrade h2c request", error);
+      socket.destroy();
+    });
+    socket.resume();
     return true;
   };
   return server;

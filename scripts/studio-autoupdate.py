@@ -27,6 +27,12 @@ class Deferred(Exception):
     pass
 
 
+class MergeConflict(RuntimeError):
+    def __init__(self, paths):
+        self.paths = paths
+        super().__init__('Upstream merge needs resolution: ' + ', '.join(paths))
+
+
 def write_json(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value, indent=2) + '\n')
@@ -143,8 +149,13 @@ class Updater:
         candidate = self.work / 'candidate'
         self.git('worktree', 'add', '--detach', str(candidate), base)
         self.save(phase='merge')
-        self.git('-c', 'user.name=Studio Updater', '-c', 'user.email=studio-updater@localhost',
-            'merge', '--no-ff', target['revision'], '-m', f"Merge upstream {target['tag']} into Studio fork", cwd=candidate)
+        try:
+            self.git('-c', 'user.name=Studio Updater', '-c', 'user.email=studio-updater@localhost',
+                'merge', '--no-ff', target['revision'], '-m', f"Merge upstream {target['tag']} into Studio fork", cwd=candidate)
+        except RuntimeError:
+            conflicts = self.git('diff', '--name-only', '--diff-filter=U', cwd=candidate).splitlines()
+            if conflicts: raise MergeConflict(conflicts)
+            raise
         self.save(phase='dependency-locks')
         self.sync_locks(candidate, base)
         revision = self.git('rev-parse', 'HEAD', cwd=candidate)
@@ -173,7 +184,7 @@ class Updater:
         self.git('merge', '--ff-only', revision)
         self.save(status='updated', phase='complete', ready=None, currentRevision=revision,
             lastSuccess={'time': int(time.time()), 'revision': revision, 'upstream': ready['target']},
-            error=None, retryAfter=None)
+            error=None, retryAfter=None, lastFailure=None, deferredReason=None)
         self.remove_candidate()
 
     def execute(self):
@@ -205,11 +216,16 @@ class Updater:
         self.save(upstream=target, currentRevision=base)
         if self.ancestor(target['revision'], base):
             self.release.health(base)
-            self.save(status='up-to-date', phase='idle', error=None, retryAfter=None, ready=None)
+            self.save(status='up-to-date', phase='idle', error=None, retryAfter=None, ready=None,
+                lastFailure=None, deferredReason=None)
             return
         attempt = {'base': base, 'target': target}
+        failure = self.state.get('lastFailure') or {}
+        if failure.get('attempt') == attempt and failure.get('conflicts'):
+            self.save(status='needs-resolution', phase='merge', error=failure['error'], retryAfter=None)
+            return
         if self.state.get('failedAttempt') == attempt and (self.state.get('retryAfter') or 0) > time.time():
-            self.save(status='retry-wait', phase='idle')
+            self.save(status='retry-wait', phase='idle', error=failure.get('error', self.state.get('error')))
             return
         self.save(status='running', attempt=attempt, error=None)
         if not ready or ready['base'] != base or ready['target'] != target:
@@ -221,16 +237,21 @@ class Updater:
         if self.git('rev-parse', 'origin/studio') != base:
             raise RuntimeError('Fork changed during validation; live release retained')
         self.git('push', '--dry-run', 'origin', revision + ':refs/heads/studio')
-        # Do not close admission while a long-running request is already active.
-        if self.release.status()['pending']:
-            raise Deferred('Requests are active; validated candidate waits for the next hourly check')
+        # New workers drain actual HTTP responses after closing admission. Legacy
+        # workers still use audit entries, so leave their busy migration manual.
+        live = self.release.status()
+        if live.get('transport') is None and live['pending']:
+            raise Deferred('Legacy worker has pending requests; verified candidate retained')
         with (self.root / 'release.lock').open('a') as release_lock:
             try: fcntl.flock(release_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError: raise Deferred('A release operation is already running')
             if self.release.status()['release'] != base:
                 raise RuntimeError('Live release changed during validation')
             self.save(phase='activate')
-            self.release.activate(revision, False)
+            try:
+                self.release.activate(revision, False)
+            except self.release.DrainTimeout as error:
+                raise Deferred(str(error)) from error
         self.save(phase='publish', status='sync-pending', currentRevision=revision)
         self.publish(ready)
 
@@ -243,17 +264,21 @@ class Updater:
             stamp = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
             log_path = self.work / ('run-' + stamp + '.log')
             with log_path.open('a') as self.log:
-                self.save(lastCheck=int(time.time()), log=str(log_path))
+                self.save(lastCheck=int(time.time()), log=str(log_path), deferredReason=None)
                 try:
                     self.execute()
                 except Deferred as error:
-                    self.save(status='deferred', phase='ready', error=str(error))
+                    self.save(status='deferred', phase='ready' if self.state.get('ready') else 'waiting',
+                        deferredReason=str(error))
                 except Exception as error:
                     # Keep a successfully activated revision for publication retry.
                     published_later = self.state.get('phase') == 'publish'
-                    self.save(status='sync-pending' if published_later else 'failed',
+                    conflicts = error.paths if isinstance(error, MergeConflict) else []
+                    failure = {'time': int(time.time()), 'phase': self.state.get('phase'),
+                        'attempt': self.state.get('attempt'), 'error': str(error), 'conflicts': conflicts}
+                    self.save(status='sync-pending' if published_later else 'needs-resolution' if conflicts else 'failed',
                         error=str(error), failedAt=int(time.time()), failedAttempt=self.state.get('attempt'),
-                        retryAfter=int(time.time()) + RETRY_DELAY,
+                        lastFailure=failure, retryAfter=None if conflicts else int(time.time()) + RETRY_DELAY,
                         ready=self.state.get('ready') if published_later else None)
                     print(json.dumps(self.state))
                     return 1

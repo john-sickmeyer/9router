@@ -12,6 +12,20 @@ PLIST = AGENTS / (LABEL + '.plist')
 MAINTENANCE = ROOT / 'maintenance'
 DOMAIN = f'gui/{os.getuid()}'
 PORT = 20128
+DRAIN_TIMEOUT_SECONDS = 600
+
+class DrainTimeout(RuntimeError):
+    pass
+
+def has_active_requests(state):
+    transport = state.get('transport')
+    if 'transport' not in state:
+        return bool(state['pending'])
+    if (not isinstance(transport, dict) or transport.get('version') != 1 or type(transport.get('activeCount')) is not int
+            or transport['activeCount'] < 0 or not isinstance(transport.get('pending'), list)
+            or transport['activeCount'] != len(transport['pending'])):
+        raise RuntimeError('Invalid transport drain status; refusing activation')
+    return transport['activeCount'] > 0
 
 def atomic_json(path, data):
     tmp = path.with_suffix(path.suffix + '.tmp')
@@ -136,10 +150,10 @@ def activate(rev, migrate):
     stock = []
     try:
         if previous:
-            for _ in range(60):
-                if not status()['pending']: break
+            for _ in range(DRAIN_TIMEOUT_SECONDS):
+                if not has_active_requests(status()): break
                 time.sleep(1)
-            else: raise RuntimeError('Requests still active after 60 seconds; update cancelled')
+            else: raise DrainTimeout(f'Requests still active after {DRAIN_TIMEOUT_SECONDS} seconds; update cancelled')
         stopped = True
         if migrate:
             for label in ['com.sickmeyer.9router-watchdog', 'com.9router.autostart']:

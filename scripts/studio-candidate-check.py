@@ -39,6 +39,8 @@ def validate(build, revision, log_path):
                 code, content = call('/api/studio', admin=True)
                 checks['release'] = code == 200 and json.loads(content)['release'] == revision
                 if not checks['release']: raise RuntimeError('Candidate port belongs to the wrong release')
+                transport = json.loads(content).get('transport', {})
+                checks['transport_tracking'] = transport == {'version': 1, 'activeCount': 0, 'pending': []}
                 checks['protected_status'] = call('/api/studio')[0] == 401
                 for label, headers in [('catalog', {}), ('claude_catalog', {'anthropic-version': '2023-06-01'})]:
                     code, content = call('/v1/models', headers=headers)
@@ -58,6 +60,9 @@ def validate(build, revision, log_path):
                 marker.write_text('validation')
                 checks['drain'] = call('/v1/chat/completions', payload={
                     'model': 'cx/gpt-6-astra', 'messages': [{'role': 'user', 'content': 'probe'}]})[0] == 503
+                checks['drain_all_inference_routes'] = all(call(path, payload={})[0] == 503 for path in
+                    ['/api/v1/messages', '/v1/v1/messages', '/v1/images/generations',
+                     '/responses', '/codex/responses', '/systemone', '/v1beta/models/probe:generateContent'])
                 if not all(checks.values()): raise RuntimeError('Candidate checks failed: ' + json.dumps(checks))
                 return checks
             finally:

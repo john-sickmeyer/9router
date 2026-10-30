@@ -7,7 +7,7 @@
   "scripts": {
     "test": "vitest run --reporter=verbose",
     "test:watch": "vitest --reporter=verbose",
-    "test:studio": "vitest run unit/studio-*.test.js unit/codex-fast-capacity.test.js unit/codex-gpt6-lite.test.js unit/codex-native-passthrough-thinking.test.js unit/key-access-handlers.test.js unit/account-fallback-4xx.test.js unit/antigravity-quota-routing.test.js && python3 -m unittest discover -s python -p 'test_studio*.py'"
+    "test:studio": "vitest run unit/studio-*.test.js unit/standalone-assets.test.js unit/custom-server-peer-headers.test.js unit/codex-fast-capacity.test.js unit/codex-gpt6-lite.test.js unit/codex-native-passthrough-thinking.test.js unit/key-access-handlers.test.js unit/account-fallback-4xx.test.js unit/antigravity-quota-routing.test.js && node --test unit/custom-server-h2c.test.cjs && python3 -m unittest discover -s python -p 'test_studio*.py'"
   },
   "devDependencies": {
     "vitest": "^4.0.0"
