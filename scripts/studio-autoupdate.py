@@ -184,7 +184,7 @@ class Updater:
         self.git('merge', '--ff-only', revision)
         self.save(status='updated', phase='complete', ready=None, currentRevision=revision,
             lastSuccess={'time': int(time.time()), 'revision': revision, 'upstream': ready['target']},
-            error=None, retryAfter=None, lastFailure=None, deferredReason=None)
+            error=None, retryAfter=None, lastFailure=None, deferredReason=None, deferredSince=None)
         self.remove_candidate()
 
     def execute(self):
@@ -217,7 +217,7 @@ class Updater:
         if self.ancestor(target['revision'], base):
             self.release.health(base)
             self.save(status='up-to-date', phase='idle', error=None, retryAfter=None, ready=None,
-                lastFailure=None, deferredReason=None)
+                lastFailure=None, deferredReason=None, deferredSince=None)
             return
         attempt = {'base': base, 'target': target}
         failure = self.state.get('lastFailure') or {}
@@ -269,7 +269,7 @@ class Updater:
                     self.execute()
                 except Deferred as error:
                     self.save(status='deferred', phase='ready' if self.state.get('ready') else 'waiting',
-                        deferredReason=str(error))
+                        deferredReason=str(error), deferredSince=self.state.get('deferredSince') or int(time.time()))
                 except Exception as error:
                     # Keep a successfully activated revision for publication retry.
                     published_later = self.state.get('phase') == 'publish'

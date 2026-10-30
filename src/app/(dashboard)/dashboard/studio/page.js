@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import StudioUpdateHealth from "@/shared/components/StudioUpdateHealth";
 
 export default function StudioControls() {
   const [data, setData] = useState(null);
@@ -36,6 +37,7 @@ export default function StudioControls() {
   const selectClass = "rounded-lg border border-border bg-bg p-3 w-full";
   return <main className="max-w-6xl mx-auto p-6 space-y-7">
     <div><h1 className="text-2xl font-semibold">Studio controls</h1><p className="text-text-muted mt-2">Choose a speed and effort, then use the exact model name in your AI client. Account switching preserves both choices.</p></div>
+    <StudioUpdateHealth details />
     <section className="border border-border rounded-xl p-5 space-y-4">
       <div className="grid md:grid-cols-3 gap-4">
         <label>Model<select className={selectClass} value={model} onChange={e => { const c = data.choices.find(x => x.id === e.target.value); setModel(c.id); setSpeed("standard"); setEffort(effort === "client" || c.efforts.includes(effort) ? effort : "high"); }}>{data?.choices.map(c => <option key={c.id}>{c.id}</option>)}</select></label>

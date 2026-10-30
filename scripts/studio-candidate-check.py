@@ -21,8 +21,13 @@ def validate(build, revision, log_path):
     with tempfile.TemporaryDirectory(prefix='9router-candidate-') as directory:
         data = pathlib.Path(directory)
         marker = data / 'maintenance'
+        updates = data / 'updates'
+        updates.mkdir()
+        update_state = {'status': 'up-to-date', 'lastCheck': int(time.time()), 'currentRevision': revision}
+        (updates / 'status.json').write_text(json.dumps(update_state))
         env = {**os.environ, 'PORT': str(port), 'HOSTNAME': '127.0.0.1', 'NODE_ENV': 'production',
             'DATA_DIR': str(data), 'STUDIO_RELEASE': revision, 'STUDIO_MAINTENANCE_FILE': str(marker),
+            'STUDIO_UPDATE_STATE_DIR': str(updates),
             'DISABLE_BACKGROUND_TOKEN_REFRESH': '1', 'STUDIO_CURATED_CATALOG': '1', 'STUDIO_CLAUDE_FAST_ENABLED': '0'}
         with log_path.open('w') as log:
             process = subprocess.Popen([shutil.which('node'), str(build / 'custom-server.js')],
@@ -42,6 +47,14 @@ def validate(build, revision, log_path):
                 transport = json.loads(content).get('transport', {})
                 checks['transport_tracking'] = transport == {'version': 1, 'activeCount': 0, 'pending': []}
                 checks['protected_status'] = call('/api/studio')[0] == 401
+                code, content = call('/api/studio/updates', admin=True)
+                checks['update_health'] = code == 200 and json.loads(content).get('status') == 'up-to-date'
+                checks['protected_update_health'] = call('/api/studio/updates')[0] == 401
+                (updates / 'status.json').write_text(json.dumps({**update_state, 'status': 'needs-resolution',
+                    'lastFailure': {'error': 'Fixture conflict', 'conflicts': ['fixture.js']}}))
+                code, content = call('/api/studio/updates', admin=True)
+                checks['update_conflict_warning'] = code == 200 and json.loads(content).get('needsAttention') is True
+                (updates / 'status.json').write_text(json.dumps(update_state))
                 for label, headers in [('catalog', {}), ('claude_catalog', {'anthropic-version': '2023-06-01'})]:
                     code, content = call('/v1/models', headers=headers)
                     if code != 200: raise RuntimeError('Candidate catalog unavailable')

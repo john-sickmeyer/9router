@@ -98,11 +98,16 @@ Failed tests/builds retry after six hours, or immediately when the deployed fork
 
 State and logs are in `~/Library/Application Support/9router-studio/autoupdate/`: `status.json`, `run-*.log`, `candidate.log`, and `launchd.log`. The candidate worktree is disposable and replaced only by this updater; immutable releases and database backups are retained. The deploy key is confined to this repository and its private half stays on the Studio. GitHub's published SSH host keys are pinned in that directory's `known_hosts`.
 
+The dashboard shows update warnings across all pages, with the latest checked tag, check time, failure details, and conflict paths in **Studio controls**. A check older than three hours is stale. Short maintenance pauses and ordinary drain deferrals remain visible; pauses longer than two hours and deferrals longer than six hours require attention. The status endpoint is dashboard-authenticated and reads only selected update metadata.
+
+An independent LaunchAgent, `com.sickmeyer.9router-update-watchdog`, checks every 15 minutes and on login. If checks have stopped, it starts the existing updater again (or reloads its verified LaunchAgent). It never kills a running updater, bypasses its lock, removes a pause marker, or interrupts inference. A merge conflict, validation failure, forgotten pause, or unresolved scheduler issue triggers a local macOS notification, deduplicated for 24 hours while the same issue persists. Notification delivery depends on macOS notification settings; failures are recorded in `autoupdate/watchdog.json`, and dashboard warnings remain available. Watchdog state/logs are `watchdog.json` and `watchdog.log` in the same directory.
+
 Initial installation, after the committed source has been tested and deployed:
 
 ```sh
 cd "$HOME/Library/Application Support/9router-studio/source"
 python3 scripts/studio-autoupdate.py --install
+python3 scripts/studio-update-watchdog.py --install
 ```
 
 Run a check immediately with `python3 scripts/studio-autoupdate.py`. An exclusive lock prevents overlapping checks. To pause checks for manual maintenance, create `autoupdate/paused` under the service directory; remove that file to resume. This does not interrupt an update already running: wait for that run to finish before changing the source or live release.
