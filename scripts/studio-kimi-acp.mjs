@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Bridge 9Router model capabilities to stock ACP clients; the vendor CLI executes everything.
 import { spawn } from 'node:child_process';
+import { realpathSync } from 'node:fs';
 import { constants, homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,7 +97,7 @@ async function main() {
   const args = process.argv.slice(2);
   const acp = args[0] === 'acp';
   const command = process.env.STUDIO_KIMI_NATIVE_PATH || resolve(homedir(), '.kimi-code/bin/kimi');
-  if (resolve(command) === fileURLToPath(import.meta.url)) throw new Error('Native Kimi path points to the adapter');
+  if (realpathSync(command) === fileURLToPath(import.meta.url)) throw new Error('Native Kimi path points to the adapter');
   const catalog = acp ? await loadCatalog({ token: process.env.ANTHROPIC_AUTH_TOKEN, url: process.env.STUDIO_KIMI_CATALOG_URL }) : [];
   const child = spawn(command, args, { stdio: acp ? ['pipe', 'pipe', 'inherit'] : 'inherit', detached: acp });
   let killTimer;
@@ -132,6 +133,6 @@ async function main() {
   });
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch(() => { console.error('[9Router Kimi] Adapter could not start'); process.exitCode = 1; });
 }

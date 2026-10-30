@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,9 @@ function launch(source, args = ['acp']) {
   temporary.push(dir);
   const executable = join(dir, 'kimi');
   writeFileSync(executable, `#!${process.execPath}\n${source}`, { mode: 0o700 });
-  const child = spawn(process.execPath, [adapter, ...args], {
+  const current = join(dir, 'current-adapter.mjs');
+  symlinkSync(adapter, current);
+  const child = spawn(process.execPath, [current, ...args], {
     env: { ...process.env, STUDIO_KIMI_NATIVE_PATH: executable, STUDIO_KIMI_CATALOG_URL: 'http://127.0.0.1:1/v1/models' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
