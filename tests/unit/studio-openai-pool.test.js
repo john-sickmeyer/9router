@@ -170,6 +170,21 @@ describe("OpenAI-first real request pipeline", () => {
     expect((await send({ stream: true })).headers.get("x-9router-serving-provider")).toBe("codex");
   });
 
+  it("aborts the upstream before first output when the client disconnects, without OAuth replay", async () => {
+    let started;
+    const entered = new Promise(resolve => { started = resolve; });
+    const controller = new AbortController();
+    global.fetch.mockImplementation(async (_url, options) => {
+      started();
+      return new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+    });
+    const result = handleChat(new Request("http://localhost/v1/responses", { method: "POST", signal: controller.signal,
+      headers: { "content-type": "application/json" }, body: JSON.stringify({ model: "gpt-6.1-sol@standard", input: "fixture", stream: true }) }));
+    await entered; controller.abort();
+    expect((await result).status).toBe(499);
+    expect(global.fetch).toHaveBeenCalledOnce();
+  });
+
   it.each([true, false])("never replays after reasoning starts (stream=%s)", async stream => {
     fx.replies.push(sse(frame({ type: "response.output_item.added", output_index: 0, item: { type: "reasoning", id: "r1", summary: [] } })
       + frame({ type: "response.failed", response: { error: { code: "credit_balance_exhausted" } } })));

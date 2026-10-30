@@ -1781,7 +1781,7 @@ export default function ProviderDetailPage() {
       {/* Models */}
       <Card>
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap min-w-0 items-center gap-3">
             <h2 className="text-lg font-semibold">
               {"Available Models"}
             </h2>

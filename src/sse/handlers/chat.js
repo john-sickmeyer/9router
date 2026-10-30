@@ -314,6 +314,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   let lastHeaders = null;
 
   while (true) {
+    if (request?.signal?.aborted) return errorResponse(499, "Request aborted");
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model, requestControls });
 
     if (credentials?.noEligibleControls) {
@@ -374,6 +375,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       clientRawRequest,
       connectionId: credentials.connectionId,
       userAgent,
+      clientSignal: request?.signal,
       apiKey,
       ccFilterNaming: !!chatSettings.ccFilterNaming,
       rtkEnabled: !!chatSettings.rtkEnabled,
