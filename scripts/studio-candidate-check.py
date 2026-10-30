@@ -43,10 +43,12 @@ def validate(build, revision, log_path):
                 else: raise RuntimeError('Candidate did not start')
                 code, content = call('/api/studio', admin=True)
                 checks['release'] = code == 200 and json.loads(content)['release'] == revision
+                checks['openai_pool_enabled'] = json.loads(content).get('openaiPool', {}).get('enabled') is True
                 if not checks['release']: raise RuntimeError('Candidate port belongs to the wrong release')
                 transport = json.loads(content).get('transport', {})
                 checks['transport_tracking'] = transport == {'version': 1, 'activeCount': 0, 'pending': []}
                 checks['protected_status'] = call('/api/studio')[0] == 401
+                checks['protected_billing_recovery'] = call('/api/studio/openai-pool', payload={'action': 'retry-billing', 'connectionId': 'fixture'})[0] == 401
                 code, content = call('/api/studio/updates', admin=True)
                 checks['update_health'] = code == 200 and json.loads(content).get('status') == 'up-to-date'
                 checks['protected_update_health'] = call('/api/studio/updates')[0] == 401

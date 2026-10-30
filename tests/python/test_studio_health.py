@@ -41,5 +41,19 @@ class HealthTest(unittest.TestCase):
         self.state['accounts'].pop()
         with self.assertRaisesRegex(RuntimeError, 'identities'): self.check(baseline)
 
+    def test_api_identity_and_pool_policy_survive_updates(self):
+        self.state['openaiPool'] = {'enabled': True, 'accounts': [{'id': 'api-account', 'provider': 'openai'}]}
+        for model in self.models:
+            if model['id'].startswith('cx/'): model['id'] = model['id'][3:]
+        baseline = self.check()
+        self.assertEqual(len(baseline), 3)
+        self.state['openaiPool']['accounts'][0]['id'] = 'different-api-account'
+        with self.assertRaisesRegex(RuntimeError, 'identities'): self.check(baseline)
+        self.state['openaiPool']['accounts'][0]['id'] = 'api-account'
+        self.state['openaiPool']['enabled'] = False
+        for model in self.models:
+            if model['id'].startswith('gpt-'): model['id'] = 'cx/' + model['id']
+        with self.assertRaisesRegex(RuntimeError, 'disabled'): self.check(baseline)
+
 
 if __name__ == '__main__': unittest.main()

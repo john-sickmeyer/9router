@@ -55,7 +55,10 @@ def live_contract(status, catalog, baseline=None):
             raise RuntimeError('Studio speed/effort controls are incomplete')
         if row['id'].startswith('cc/') and row['speeds'] != ['standard']:
             raise RuntimeError('Claude Fast must remain disabled')
-    accounts = sorted((row['id'], row['provider']) for row in status['accounts'])
+    pool = status.get('openaiPool', {})
+    accounts = sorted((row['id'], row['provider']) for row in status['accounts'] + pool.get('accounts', []))
     if baseline is not None and accounts != baseline:
         raise RuntimeError('Connected account identities changed during activation')
+    if baseline is not None and any(provider == 'openai' for _, provider in baseline) and not pool.get('enabled'):
+        raise RuntimeError('OpenAI API-first pool was disabled during activation')
     return accounts
