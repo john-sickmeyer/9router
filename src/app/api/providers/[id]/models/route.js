@@ -15,6 +15,8 @@ import { resolveZedModels } from "open-sse/shared/zedAuth.js";
 import { resolveClineModels, resolveClinepassModels } from "open-sse/services/clinepassModels.js";
 import { NOUS_MODELS_URL, normalizeNousModels } from "open-sse/services/nous.js";
 import codexProvider from "open-sse/providers/registry/codex.js";
+import { MOONSHOT_MODELS_URL } from "open-sse/config/moonshot.js";
+import { normalizeMoonshotModels } from "open-sse/services/moonshot.js";
 
 const GEMINI_CLI_MODELS_URL = "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels";
 
@@ -261,6 +263,10 @@ const PROVIDER_MODELS_CONFIG = {
   nous: {
     ...createOpenAIModelsConfig(NOUS_MODELS_URL),
     parseResponse: normalizeRoutedNousModels,
+  },
+  moonshot: {
+    ...createOpenAIModelsConfig(MOONSHOT_MODELS_URL),
+    parseResponse: normalizeMoonshotModels,
   },
   anthropic: {
     url: "https://api.anthropic.com/v1/models",

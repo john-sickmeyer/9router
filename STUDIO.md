@@ -42,6 +42,36 @@ Claude discovery uses canonical model IDs so the runtime's reported ID matches t
 
 ## Account switching and verification
 
+### Kimi API Platform and Kimi Code
+
+Use **Kimi API Platform** for pay-as-you-go keys from `platform.kimi.ai` or
+`platform.moonshot.ai`. It uses `https://api.moonshot.ai/v1` with Bearer auth.
+**Kimi Code** remains the separate subscription/OAuth provider; its credentials
+and model IDs are not interchangeable with Platform keys. Existing `kimi/`,
+`kimi-coding/`, and `kmc/` routing remains on Code.
+
+Platform models use the `moonshot/` prefix, for example
+`moonshot/kimi-k3.1-pro` or `moonshot/kimi-k3.1-pro-highspeed(low)`. The current
+Platform catalog includes K3.1 Pro, its Highspeed variant, K3, K2.7 Code, its
+Highspeed variant, and K2.6. The connection's models endpoint also retrieves the
+live catalog. K3 supports Low, High, and Max; automatic effort leaves the API's
+default Max intact. Unsupported efforts and disabled thinking return 400.
+K3 sampling settings are fixed by the API, so the router omits client sampling
+overrides and translates `max_tokens` to `max_completion_tokens`.
+
+Adding/testing a Platform key uses authenticated `GET /models`, with no paid
+completion probe. Rate limits and server failures are reported separately from
+rejected keys. Usage displays available USD credits from `/users/me/balance`;
+it does not infer credit expiry. The Studio regression suite exercises these
+routes and the actual inference handler/executor so upstream updates must
+preserve the split. This does not alter the curated Happier model catalog.
+
+Verified 2026-10-30 against the live Platform model API, the
+[K3 Platform guide](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart), and
+the [Kimi Code platform comparison](https://www.kimi.com/code/docs/).
+
+### Capacity and fallback
+
 The normal 9Router account strategy remains available. With fill-first, a quota/rate/capacity failure locks that account/model and retries the next eligible account with the same conversation, model, speed, and effort. Accelerated requests never fall back to Standard. Once output has started, interrupted streams fail visibly; they are not replayed automatically because replaying tool calls can duplicate effects.
 
 Provider reset times and `Retry-After` are honored without shortening weekly limits to a few minutes. After a Claude 429, a bounded, cached quota lookup distinguishes session/weekly account limits from model-specific limits. Exhausted account-wide windows exclude all models until reset; quota lookup failures retain ordinary backoff and fallback. Available paid extra usage is not treated as exhausted included quota. Connection tests validate credentials separately from capacity: they retain active quota locks and report a warning, and Claude tests also check its usage windows. The dashboard shows **rate limited** while blocked and **retry ready** after cooldown expires; only successful inference confirms recovery. A request that started before a newer error cannot erase that error when it finishes.

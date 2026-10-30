@@ -1,7 +1,6 @@
 import { CLAUDE_API_HEADERS } from "../shared.js";
 
-// Dual auth (same pattern as xai): OAuth = Kimi Code subscription (device code),
-// API key = platform.moonshot / api.kimi.com. Transport is shared.
+// Both auth modes belong to Kimi Code. API Platform keys use `moonshot`.
 // CLIProxyAPI parity: client_id, auth.kimi.com device+token, X-Msh-* headers, device_id.
 export default {
   id: "kimi",
@@ -10,13 +9,14 @@ export default {
   // Legacy id + short alias from former kimi-coding registry entry
   aliases: ["kimi-coding", "kmc"],
   display: {
-    name: "Kimi",
+    name: "Kimi Code",
     icon: "psychology",
     color: "#1E3A8A",
     textIcon: "KM",
-    website: "https://kimi.moonshot.cn",
+    website: "https://www.kimi.com/code",
     notice: {
-      apiKeyUrl: "https://platform.moonshot.ai/console/api-keys",
+      text: "Kimi Code subscription credentials only. For platform.kimi.ai / platform.moonshot.ai keys, select Kimi API Platform.",
+      apiKeyUrl: "https://www.kimi.com/code/console",
       signupUrl: "https://www.kimi.com/code",
     },
   },
@@ -60,26 +60,12 @@ export default {
     },
   ],
   models: [
-    // Flagship K3 — platform.kimi.ai id `kimi-k3`, Kimi Code OAuth id `k3` (up to 1M)
-    { id: "kimi-k3", name: "Kimi K3" },
     { id: "k3", name: "Kimi K3 (Code)" },
     // Kimi Code subscription stable ids (map to K2.7 Code backend)
     { id: "kimi-for-coding", name: "Kimi for Coding" },
     { id: "kimi-for-coding-highspeed", name: "Kimi for Coding Highspeed" },
-    // Pay-as-you-go platform ids
-    { id: "kimi-k2.7-code", name: "Kimi K2.7 Code" },
-    { id: "kimi-k2.7-code-highspeed", name: "Kimi K2.7 Code Highspeed" },
-    { id: "kimi-k2.6", name: "Kimi K2.6" },
-    { id: "kimi-k2.5", name: "Kimi K2.5" },
-    { id: "kimi-k2.5-thinking", name: "Kimi K2.5 Thinking" },
-    { id: "kimi-latest", name: "Kimi Latest" },
   ],
-  serviceKinds: ["llm", "webSearch"],
-  searchViaChat: {
-    defaultModel: "kimi-k3",
-    endpoint: "https://api.moonshot.cn/v1/chat/completions",
-    pricingUrl: "https://platform.kimi.ai/docs/pricing/chat",
-  },
+  serviceKinds: ["llm"],
   oauth: {
     clientId: "17e5f671-d194-4dfb-9706-5516cb48c098",
     deviceCodeUrl: "https://auth.kimi.com/api/oauth/device_authorization",

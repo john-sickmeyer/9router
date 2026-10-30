@@ -1,4 +1,5 @@
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
+import { MOONSHOT_K3_PATTERN } from "../../config/moonshot.js";
 
 // Strip request params a given provider/model rejects upstream (e.g. HTTP 400).
 // Config-driven: add a rule instead of scattering `delete body.x` across executors.
@@ -6,6 +7,12 @@ import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 // Each rule: optional provider, regex match on model, list of params to drop.
 // A param is removed only when it is present (!== undefined).
 const STRIP_RULES = [
+  // K3 fixes sampling values and uses max_completion_tokens on the Platform.
+  {
+    provider: "moonshot", match: MOONSHOT_K3_PATTERN,
+    drop: ["temperature", "top_p", "n", "presence_penalty", "frequency_penalty"],
+    renameParams: { max_tokens: "max_completion_tokens" },
+  },
   // All Claude models: temperature deprecated/rejected upstream (Anthropic 400). #1748
   { match: /claude/i, drop: ["temperature"] },
   // GitHub Copilot gpt-5.4: temperature unsupported.

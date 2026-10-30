@@ -5,6 +5,7 @@
 import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { getThinkingLevels } from "../../providers/thinkingLevels.js";
 import { PROVIDERS } from "../../providers/index.js";
+import { MOONSHOT_K3_PATTERN, MOONSHOT_K3_EFFORTS } from "../../config/moonshot.js";
 import { LEVEL_TO_BUDGET, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
 
 // Map a target wire-format to its native thinking format (when capability has none).
@@ -111,6 +112,23 @@ export function captureThinking(body) {
   if (!cfg || cfg.mode === "none") return cfg;
   const display = openAIThinkingDisplay(body);
   return display ? { ...cfg, display } : cfg;
+}
+
+// Validate before translation can map an unsupported effort to a different one.
+export function validateThinkingIntent(provider, model, body) {
+  const { cleanModel, override } = parseSuffix(model);
+  if (provider !== "moonshot" || !MOONSHOT_K3_PATTERN.test(cleanModel)) return null;
+  const intent = extractThinking(body);
+  for (const cfg of [override, intent]) {
+    if (!cfg || cfg.mode === "auto") continue;
+    if (cfg.mode !== "level" || !MOONSHOT_K3_EFFORTS.includes(cfg.level)) {
+      return `Kimi API Platform ${cleanModel} supports reasoning effort: ${MOONSHOT_K3_EFFORTS.join(", ")}. Thinking cannot be disabled; token budgets are unsupported.`;
+    }
+  }
+  if (override?.mode === "level" && intent?.mode === "level" && override.level !== intent.level) {
+    return "Model reasoning suffix conflicts with the requested reasoning effort";
+  }
+  return null;
 }
 
 function openAIThinkingDisplay(body) {
@@ -457,6 +475,11 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   // An OpenAI-shaped client's ask arrives via the captured intent instead.
   const display = typeof body.thinking?.display === "string" ? body.thinking.display : intent?.display;
   stripAll(body);
+  if (provider === "moonshot" && MOONSHOT_K3_PATTERN.test(cleanModel)) {
+    // Auto leaves the API's default (max) intact; explicit efforts stay verbatim.
+    if (cfg.mode === "level") body.reasoning_effort = cfg.level;
+    return body;
+  }
   applyFormat(fmt, body, cfg, caps, supportedLevels, display, cleanModel);
   return body;
 }

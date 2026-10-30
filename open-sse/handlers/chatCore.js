@@ -2,7 +2,7 @@ import { applyControls } from "../services/studioControls.js";
 import { observeControlResponse } from "../services/controlResponse.js";
 import { detectFormat, getTargetFormat, resolveTransport } from "../services/provider.js";
 import { translateRequest } from "../translator/index.js";
-import { applyThinking, extractThinking, stripThinkingSuffix } from "../translator/concerns/thinkingUnified.js";
+import { applyThinking, extractThinking, stripThinkingSuffix, validateThinkingIntent } from "../translator/concerns/thinkingUnified.js";
 import { FORMATS } from "../translator/formats.js";
 import { normalizeClaudePassthrough, anchorClaudeCache } from "../translator/formats/claude.js";
 import { createStreamController } from "../utils/streamHandler.js";
@@ -130,6 +130,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   }
 
   const upstreamModel = getModelUpstreamId(alias, model, body);
+  const thinkingError = validateThinkingIntent(provider, model, body);
+  if (thinkingError) return createErrorResult(HTTP_STATUS.BAD_REQUEST, thinkingError);
 
   // Verified mode must not inherit a lossy transform before or after verification.
   if (headroomVerifiedLossless) {
