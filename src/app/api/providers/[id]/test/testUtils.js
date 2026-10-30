@@ -1059,7 +1059,9 @@ export async function testSingleConnection(id) {
   const updated = await updateProviderConnection(id, updateData);
   const retryAfter = getEarliestModelLockUntil(updated);
   const warning = result.valid
-    ? retryAfter
+    ? updated?.studioBillingState
+      ? "Credentials valid; OpenAI billing remains suspended or awaiting a real retry. Restore credits or limits, then retry the API account in Studio controls."
+      : retryAfter
       ? `Credentials valid; model availability is limited until ${retryAfter}. ${updated.lastError || ""}`.trim()
       : softWarning || "Credentials check passed; model capacity is not tested."
     : null;

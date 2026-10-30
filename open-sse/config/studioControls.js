@@ -9,7 +9,7 @@ export const CODEX_RUNTIME_ONLY_EFFORTS = new Set(["ultra"]);
 export const CODEX_RUNTIME_EFFORT_ERROR = "Unsupported effort 'ultra' on the inference API. Ultra is a Codex runtime orchestration mode; select it in a compatible native client. For a router model alias, choose an API effort such as max. Ultrafast speed is supported separately.";
 export const CODEX_CATALOG_URL = `https://chatgpt.com/backend-api/codex/models?client_version=${CODEX_CATALOG_VERSION}`;
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
-export const CONTROL_PROVIDERS = new Set(["codex", "claude", "anthropic"]);
+export const CONTROL_PROVIDERS = new Set(["codex", "openai", "claude", "anthropic"]);
 export const SPEEDS = { standard: "default", default: "default", auto: "default", fast: "priority", priority: "priority", ultrafast: "ultrafast" };
 export const CODEX_EFFORTS = {
   "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],

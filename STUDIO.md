@@ -9,6 +9,7 @@ Use the native request fields where the client exposes them:
 | Provider | Speed | Effort |
 |---|---|---|
 | Codex | `service_tier: "fast"` (sent as `priority`), `"ultrafast"`, or `"default"` | `reasoning.effort` or `reasoning_effort` |
+| OpenAI API | Standard explicitly sends `default`; Fast sends `priority`; Sol/Astra Ultrafast sends `ultrafast` | Model-specific effort, including exact `max` |
 | Claude | Standard; Fast is disabled on this Studio | `output_config.effort` |
 
 Clients without separate speed controls can enter a custom model alias:
@@ -41,6 +42,67 @@ This uses the stock Happier apps and their existing model/Thinking picker. It re
 Claude discovery uses canonical model IDs so the runtime's reported ID matches the picker row. In curated mode those two canonical IDs resolve to the Claude OAuth account pool; explicit operator aliases take precedence. To keep Claude's running-session SDK catalog equally small, configure its user-level `modelPicker` with `replaceBuiltInOptions: true` and two `options` rows (`model`/`label`) for `claude-opus-5-5` and `claude-fable-5-1`. This is a display preference; it does not restrict subagent routing as `availableModels` would.
 
 ## Account switching and verification
+
+### OpenAI API credits first
+
+Studio activation enables `STUDIO_OPENAI_POOL_ENABLED=1`. The six existing bare
+Happier aliases for GPT-6.1 Sol and GPT-6 Astra now try active OpenAI API keys
+before Codex OAuth accounts, keeping the exact model, speed and effort. Explicit
+`cx/...`, `codex/...` and `openai/...` routes remain provider-specific diagnostics.
+Access granted to a pooled alias permits its members through that pool, like a
+Combo; it does not grant direct access to those members. Proxy Pools configure
+network egress and are unrelated to this account policy.
+
+The router does not know the remaining credit balance or expiration date.
+`GET /models` confirms model visibility only; successful inference proves current
+capacity. Recognized exhausted-credit and spend-limit errors persist in the
+connection's `studioBillingState`, so later turns skip that key, including after
+a worker restart. Ordinary rate limits honor `Retry-After`. Model/tier eligibility
+failures have scoped six-hour cooldowns; malformed requests are returned directly.
+Restored credits require **Retry API after restoring credits** in Studio controls.
+Only one concurrent request probes a reopened key; success restores API priority,
+another billing failure suspends it again. Credential tests do not clear billing
+suspension. A crashed recovery probe can be retried after its ten-minute lease.
+No background paid inference, purchases, Auto Recharge changes or spending-limit
+changes are performed. Keep Auto Recharge off in the OpenAI console as intended.
+
+Pooled Responses use complete history and `store:false`. Leading Lite tool
+declarations move to public Responses' top-level `tools` without changing tool
+definitions. In-conversation tool changes stay on Codex. Stored response IDs,
+item references, account-scoped files/vector stores/containers require an explicit
+provider route. All reasoning, tool history, images and assistant phase are
+preserved, including the existing verified-lossless Headroom path. Two-way live
+OAuth/API continuation with encrypted reasoning and a tool loop passed on
+2026-10-30; this is not a guarantee that future opaque state formats are portable.
+An incompatible encrypted-state response can fall back intact before output;
+the router never removes that state to make a request work. A stream is never
+replayed after reasoning, tool or text output starts, even for a JSON client.
+
+Studio controls and response headers identify the serving provider and fallback
+reason. Attempts share one audit request ID. Sent controls remain separate from
+provider-confirmed speed/effort. An API response reporting Standard after a Fast
+request retains useful output and displays unconfirmed speed. API availability
+refreshes on demand every six hours; failed reads retain last-known metadata but
+exclude stale accounts until refreshed. Reviewed model semantics are versioned
+separately from availability; the dashboard warns after 30 days without review.
+The current API catalog adds Sol, Astra, Terra and Luna with per-model reasoning
+levels; only Sol/Astra receive the verified three-speed picker. The pooled catalog
+advertises a compatible 272K context, retaining the native CLI's full instructions
+and tools. Regenerate the native catalog for the installed CLI after upgrades.
+
+`studio-openai-pool.test.js` exercises actual handlers/executors with synthetic
+HTTP responses; `studio-provider-health.test.js` also checks persisted SQLite
+billing state. Both run in the hourly updater's required `test:studio` gate.
+Provider billing and metadata warnings appear in the existing dashboard health
+surface. Native OpenAI uses Responses for modern reasoning/tool workflows while
+retaining Chat Completions for legacy models.
+
+Reviewed against official OpenAI documentation:
+[model guide](https://developers.openai.com/api/docs/guides/latest-model),
+[error codes](https://developers.openai.com/api/docs/guides/error-codes),
+[conversation state](https://developers.openai.com/api/docs/guides/conversation-state),
+[Fast](https://developers.openai.com/api/docs/guides/fast-mode), and
+[Ultrafast](https://developers.openai.com/api/docs/guides/ultrafast-mode).
 
 ### Kimi API Platform and Kimi Code
 

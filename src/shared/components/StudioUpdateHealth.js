@@ -21,16 +21,17 @@ export default function StudioUpdateHealth({ details = false }) {
     return () => { active = false; clearInterval(timer); };
   }, []);
   if (!health?.managed && !unavailable) return null;
-  const warning = unavailable || ["warning", "error"].includes(health?.severity);
+  const warning = unavailable || ["warning", "error"].includes(health?.severity) || health?.providerWarnings?.length > 0;
   if (!details && !warning) return null;
   const color = warning ? "border-amber-500/40 bg-amber-500/10" : "border-border bg-bg-subtle";
   return <section aria-label="Automatic update health" role={warning ? "alert" : "status"}
     className={`rounded-xl border p-4 ${color} ${details ? "space-y-3" : "mx-6 mt-4 lg:mx-10"}`}>
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h2 className="font-semibold">Automatic updates{warning ? " need attention" : ""}</h2>
+      <h2 className="font-semibold">{health?.providerWarnings?.length ? "Studio health needs attention" : `Automatic updates${warning ? " need attention" : ""}`}</h2>
       {!details && <Link className="text-sm underline" href="/dashboard/studio">View update details</Link>}
     </div>
     <p className="text-sm mt-1">{unavailable ? "Update status could not be refreshed. The last known check is shown in Studio controls." : health.message}</p>
+    {health?.providerWarnings?.map(message => <p className="text-sm mt-1" key={message}>{message}</p>)}
     {details && <>
       <dl className="grid gap-3 text-sm sm:grid-cols-3">
         <div><dt className="text-text-muted">Latest upstream checked</dt><dd>{health?.upstreamTag || "Unknown"}</dd></div>

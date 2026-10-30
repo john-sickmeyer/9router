@@ -69,6 +69,13 @@ export async function parseUpstreamError(response, executor = null) {
   } catch {
     bodyText = "";
   }
+  let upstreamError = {};
+  try {
+    const error = JSON.parse(bodyText)?.error;
+    for (const key of ["code", "type", "param"]) {
+      if (typeof error?.[key] === "string") upstreamError[key] = error[key];
+    }
+  } catch { /* Non-JSON errors retain their existing handling. */ }
 
   // Let executor-specific parser extract provider-specific fields (e.g. codex resetsAtMs)
   if (executor && typeof executor.parseError === "function") {
@@ -77,7 +84,7 @@ export async function parseUpstreamError(response, executor = null) {
       if (parsed && typeof parsed === "object") {
         const msg = parsed.message || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
         const resets = [parsed.resetsAtMs, headerResetMs].filter(value => Number.isFinite(value) && value > now);
-        return { statusCode: parsed.status || response.status, message: msg, resetsAtMs: resets.length ? Math.max(...resets) : undefined };
+        return { statusCode: parsed.status || response.status, message: msg, resetsAtMs: resets.length ? Math.max(...resets) : undefined, upstreamError };
       }
     } catch { /* fall through to default parsing */ }
   }
@@ -93,7 +100,7 @@ export async function parseUpstreamError(response, executor = null) {
   const messageStr = typeof message === "string" ? message : JSON.stringify(message);
   const finalMessage = messageStr || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
 
-  return { statusCode: response.status, message: finalMessage, ...(headerResetMs ? { resetsAtMs: headerResetMs } : {}) };
+  return { statusCode: response.status, message: finalMessage, ...(headerResetMs ? { resetsAtMs: headerResetMs } : {}), upstreamError };
 }
 
 /**

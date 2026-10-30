@@ -1,6 +1,10 @@
 import "open-sse/index.js";
 import { splitControlModel, resolveControls, controlLockKey } from "open-sse/services/studioControls.js";
-import { refreshControlCapabilities } from "@/lib/studio/capabilities.js";
+import { refreshControlCapabilities, refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities.js";
+import { OPENAI_POOL_PROVIDER, OPENAI_ELIGIBILITY_RECHECK_MS } from "open-sse/config/openaiPlatform.js";
+import { classifyOpenaiFailure } from "open-sse/services/openaiPlatform.js";
+import { blockOpenaiBilling, releaseBillingRetry } from "@/lib/studio/openaiBilling.js";
+import { routeOpenaiPool } from "../services/openaiPool.js";
 import { recordControl, isControlDraining } from "@/lib/studio/audit.js";
 
 import {
@@ -196,7 +200,7 @@ export async function handleChat(request, clientRawRequest = null) {
 /**
  * Handle single model chat request
  */
-async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null) {
+async function handleSingleModelChat(body, modelStr, clientRawRequest = null, request = null, apiKey = null, requestedModel = null, poolOutcome = null) {
   const requestedControls = splitControlModel(modelStr);
   // Keep legacy thinking suffixes in model resolution; only strip the speed marker.
   const resolveName = requestedControls.speed
@@ -274,6 +278,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, "Invalid model format");
   }
 
+  if (modelInfo.provider === OPENAI_POOL_PROVIDER) {
+    const settings = await getSettings();
+    return routeOpenaiPool({ body, model: modelInfo.model, requested: requestedControls,
+      providerThinking: settings.providerThinking?.codex,
+      run: (provider, requestBody, outcome, baseModel) => handleSingleModelChat(requestBody,
+        `${provider}/${baseModel}`, clientRawRequest, request, apiKey, requestedModel, outcome),
+    });
+  }
   const { provider } = modelInfo;
   let model = modelInfo.model;
   const controlSettings = await getSettings();
@@ -284,10 +296,11 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     return errorResponse(HTTP_STATUS.BAD_REQUEST, error.message);
   }
   if (requestControls) model = requestControls.model;
+  if (provider === "openai") await refreshOpenaiControlCapabilities();
   if (requestControls?.provider === "codex" && requestControls.tier && requestControls.tier !== "default") {
     await refreshControlCapabilities();
   }
-  const controlRequestId = crypto.randomUUID();
+  const controlRequestId = poolOutcome?.requestId || crypto.randomUUID();
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 
@@ -304,11 +317,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model, requestControls });
 
     if (credentials?.noEligibleControls) {
+      if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason ||= "api-model-unavailable"; }
       return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, `No eligible account for ${provider}/${model} at ${requestControls?.tier || "standard"} speed and ${requestControls?.effort || "default"} effort. Refresh account capabilities in Studio controls.`);
     }
 
     // All accounts unavailable
-    if (!credentials || credentials.allRateLimited) {
+    if (!credentials || credentials.allRateLimited || credentials.billingBlocked) {
+      if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason ||= credentials?.billingBlocked ? "api-billing-blocked" : "api-capacity-unavailable"; }
+      if (credentials?.billingBlocked) return errorResponse(503, "OpenAI API billing is suspended. Retry the API account in Studio controls after restoring credits or limits.");
       if (credentials?.allRateLimited) {
         const errorMsg = lastError || credentials.lastError || "Unavailable";
         const status = HTTP_STATUS.SERVICE_UNAVAILABLE;
@@ -345,11 +361,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       body: { ...structuredClone(body), model: `${provider}/${model}` },
       modelInfo: { provider, model },
       requestControls,
-      onControlEvent: requestControls ? (event) => recordControl({
+      onControlEvent: requestControls ? (event) => {
+        if (["completed", "failed", "cancelled"].includes(event.state)) releaseBillingRetry(credentials.connectionId);
+        return recordControl({
         requestId: controlRequestId, connectionId: credentials.connectionId,
         provider, model, requestedTier: requestControls.tier || "default",
-        requestedEffort: requestControls.effort, ...event,
-      }) : null,
+        requestedEffort: requestControls.effort,
+        ...(poolOutcome ? { routePolicy: "openai-api-first", fallbackReason: poolOutcome.fallbackReason } : {}), ...event,
+      }); } : null,
       credentials: refreshedCredentials,
       log,
       clientRawRequest,
@@ -389,12 +408,14 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       },
       onRequestSuccess: async () => {
         await clearAccountError(credentials.connectionId, credentials, controlLockKey(model, requestControls));
+        releaseBillingRetry(credentials.connectionId);
         // "Consecutive" strikes: a success clears the breaker for this pair.
         clearAntigravityStrikes(credentials.connectionId, model);
       }
     });
 
     } catch (error) {
+      releaseBillingRetry(credentials.connectionId);
       if (requestControls) await recordControl({ requestId: controlRequestId, connectionId: credentials.connectionId, provider, model, state: "failed", error: "Request preparation failed" });
       return errorResponse(HTTP_STATUS.BAD_GATEWAY, "Failed to prepare provider request");
     }
@@ -402,6 +423,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Some upstream preparation failures return early instead of throwing.
     // Always clear the drain tracker for a failed attempt.
     if (!result.success && requestControls) {
+      releaseBillingRetry(credentials.connectionId);
       await recordControl({ requestId: controlRequestId, connectionId: credentials.connectionId, provider, model, state: "failed", status: result.status });
     }
 
@@ -414,10 +436,28 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       return result.response;
     }
 
+    const failureKind = provider === "openai" && result.fallbackSafe !== false
+      ? classifyOpenaiFailure(result.status, result.upstreamError?.code, result.upstreamError?.type, result.upstreamError?.param)
+      : null;
+    if (poolOutcome) { poolOutcome.canFallback = Boolean(failureKind); poolOutcome.reason = failureKind ? `api-${failureKind}` : null; }
+    if (failureKind === "billing") {
+      await blockOpenaiBilling(credentials.connectionId, result.upstreamError?.code);
+      excludeConnectionIds.add(credentials.connectionId);
+      lastError = "OpenAI billing capacity exhausted";
+      lastStatus = result.status;
+      continue;
+    }
+    if (failureKind === "continuity") return result.response;
+    // Public API request/schema failures are not account-capacity failures.
+    if (provider === "openai" && !failureKind) return result.response;
+
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
     let quotaResetMs = null;
     let resetsAtMs = result.resetsAtMs;
+    if (failureKind === "tier" || failureKind === "model") resetsAtMs = Date.now() + OPENAI_ELIGIBILITY_RECHECK_MS;
     let lockModel = controlLockKey(model, requestControls);
+    if (failureKind === "model") lockModel = model;
+    if (provider === "openai" && [401, 403].includes(result.status)) lockModel = null;
     if (provider === "claude" && result.status === 429) {
       const quota = await checkClaudeQuota({ ...credentials, accessToken: refreshedCredentials.accessToken }, model);
       if (quota) {

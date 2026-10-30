@@ -1,4 +1,5 @@
 import { connectionSupportsControls, controlLockKey } from "open-sse/services/studioControls.js";
+import { billingUnavailable, claimBillingRetry } from "@/lib/studio/openaiBilling.js";
 import { getProviderConnections, getProviderConnectionById, validateApiKey, updateProviderConnection, getSettings, getProxyPools } from "@/lib/localDb";
 import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/connectionProxy";
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil, getModelLockUntil } from "open-sse/services/accountFallback.js";
@@ -89,6 +90,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     // Filter out model-locked, excluded, and Antigravity quota-exhausted connections.
     const availableConnections = connections.filter(c => {
+      if (billingUnavailable(c)) return false;
       if (excludeSet.has(c.id)) return false;
       if (isLocked(c)) return false;
       const enabled = c.providerSpecificData?.enabledModels;
@@ -117,6 +119,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     });
 
     if (availableConnections.length === 0) {
+      if (connections.every(c => billingUnavailable(c))) return { billingBlocked: true };
       // Find earliest persistent lock or lazy Antigravity quota-cache reset for retry timing.
       const lockedConns = connections.filter(c => isLocked(c));
       const expiries = lockedConns.map(c => [getModelLockUntil(c, model), getModelLockUntil(c, lockKey)]
@@ -204,6 +207,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       connection = availableConnections[0];
     }
 
+    await claimBillingRetry(connection);
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
 
     return {
@@ -311,6 +315,7 @@ export async function clearAccountError(connectionId, currentConnection, model =
   const snapshot = currentConnection._connection || currentConnection;
   const conn = await getProviderConnectionById(connectionId);
   if (!conn || (conn.lastErrorAt && conn.lastErrorAt !== snapshot.lastErrorAt)) return;
+  if (conn.studioBillingState?.status === "blocked") return;
   const now = Date.now();
   const allLockKeys = Object.keys(conn).filter(k => k.startsWith("modelLock_"));
 
@@ -334,6 +339,7 @@ export async function clearAccountError(connectionId, currentConnection, model =
   });
 
   const clearObj = Object.fromEntries(keysToClear.map(k => [k, null]));
+  if (conn.studioBillingState?.status === "retry") clearObj.studioBillingState = null;
 
   // Only reset error state if no active locks remain
   if (remainingActiveLocks.length === 0) {

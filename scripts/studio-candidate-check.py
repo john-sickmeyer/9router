@@ -28,7 +28,7 @@ def validate(build, revision, log_path):
         env = {**os.environ, 'PORT': str(port), 'HOSTNAME': '127.0.0.1', 'NODE_ENV': 'production',
             'DATA_DIR': str(data), 'STUDIO_RELEASE': revision, 'STUDIO_MAINTENANCE_FILE': str(marker),
             'STUDIO_UPDATE_STATE_DIR': str(updates),
-            'DISABLE_BACKGROUND_TOKEN_REFRESH': '1', 'STUDIO_CURATED_CATALOG': '1', 'STUDIO_CLAUDE_FAST_ENABLED': '0'}
+            'DISABLE_BACKGROUND_TOKEN_REFRESH': '1', 'STUDIO_CURATED_CATALOG': '1', 'STUDIO_CLAUDE_FAST_ENABLED': '0', 'STUDIO_OPENAI_POOL_ENABLED': '1'}
         with log_path.open('w') as log:
             process = subprocess.Popen([shutil.which('node'), str(build / 'custom-server.js')],
                 cwd=build, env=env, stdout=log, stderr=log)
@@ -58,7 +58,7 @@ def validate(build, revision, log_path):
                 for label, headers in [('catalog', {}), ('claude_catalog', {'anthropic-version': '2023-06-01'})]:
                     code, content = call('/v1/models', headers=headers)
                     if code != 200: raise RuntimeError('Candidate catalog unavailable')
-                    catalog_contract(content, anthropic=bool(headers))
+                    catalog_contract(content, anthropic=bool(headers), pooled=True)
                     checks[label] = True
                 code, content = call('/dashboard/studio', admin=True)
                 checks['dashboard'] = code == 200 and b'Studio controls' in content

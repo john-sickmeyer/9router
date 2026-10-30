@@ -1,5 +1,6 @@
 import { getProviderConnections } from "@/lib/localDb";
-import { refreshControlCapabilities } from "@/lib/studio/capabilities";
+import { refreshControlCapabilities, refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities";
+import { isOpenaiPoolEnabled, OPENAI_POOL_MODELS, OPENAI_CURRENT_EFFORTS, OPENAI_METADATA_REVIEWED_AT, OPENAI_METADATA_TTL_MS } from "open-sse/config/openaiPlatform.js";
 import { controlStatus } from "@/lib/studio/audit";
 import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { connectionSupportsControls } from "open-sse/services/studioControls.js";
@@ -27,6 +28,20 @@ export async function GET() {
   return Response.json({
     release: process.env.STUDIO_RELEASE || "development",
     choices,
+    poolChoices: isOpenaiPoolEnabled() ? OPENAI_POOL_MODELS.map(id => ({ id,
+      speeds: ["standard", "fast", "ultrafast"], efforts: OPENAI_CURRENT_EFFORTS })) : [],
+    openaiPool: {
+      enabled: isOpenaiPoolEnabled(), priority: ["openai", "codex"],
+      metadataReviewedAt: OPENAI_METADATA_REVIEWED_AT,
+      metadataStale: Date.now() - Date.parse(OPENAI_METADATA_REVIEWED_AT) > OPENAI_METADATA_TTL_MS,
+      accounts: connections.filter(c => c.provider === "openai").map(c => ({
+        id: c.id, name: c.name, provider: c.provider,
+        billing: c.studioBillingState || null,
+        checkedAt: c.providerSpecificData?.studioCapabilities?.checkedAt || null,
+        catalogStale: !Number.isFinite(Date.parse(c.providerSpecificData?.studioCapabilities?.checkedAt))
+          || Date.now() - Date.parse(c.providerSpecificData?.studioCapabilities?.checkedAt) > CAPABILITY_TTL_MS,
+      })),
+    },
     accounts: connections.filter(c => ["codex", "claude"].includes(c.provider)).map(c => {
       const caps = c.providerSpecificData?.studioCapabilities;
       return { id: c.id, name: c.name || c.email, provider: c.provider, plan: caps?.plan || null,
@@ -38,5 +53,6 @@ export async function GET() {
 }
 
 export async function POST() {
-  return Response.json({ results: await refreshControlCapabilities({ force: true }) });
+  const results = await Promise.all([refreshControlCapabilities({ force: true }), refreshOpenaiControlCapabilities({ force: true })]);
+  return Response.json({ results: results.flat() });
 }

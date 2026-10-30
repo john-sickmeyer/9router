@@ -38,6 +38,29 @@ async function connection(provider = "claude") {
 }
 
 describe("provider reset times", () => {
+  it("persists OpenAI billing suspension across DB reloads and successful connection tests", async () => {
+    const billing = await import("@/lib/studio/openaiBilling.js");
+    const c = await connection("openai");
+    await billing.blockOpenaiBilling(c.id, "credit_balance_exhausted");
+    await db.updateProviderConnection(c.id, { testStatus: "active", lastError: null, errorCode: null, lastErrorAt: null });
+    const saved = await db.getProviderConnectionById(c.id);
+    expect(saved).toMatchObject({ testStatus: "unavailable", studioBillingState: { status: "blocked", code: "credit_balance_exhausted" } });
+    expect(getConnectionHealth(saved)).toMatchObject({ status: "unavailable" });
+    expect(billing.billingUnavailable(saved)).toBe(true);
+    await billing.reopenOpenaiBilling(c.id);
+    const retry = await db.getProviderConnectionById(c.id);
+    expect(retry.studioBillingState.status).toBe("retry");
+    await auth.clearAccountError(c.id, retry, "gpt-6.1-sol");
+    expect((await db.getProviderConnectionById(c.id)).studioBillingState).toBeNull();
+  });
+
+  it("does not let an earlier successful request clear a newer billing suspension", async () => {
+    const billing = await import("@/lib/studio/openaiBilling.js");
+    const c = await connection("openai");
+    await billing.blockOpenaiBilling(c.id, "project_spend_limit_exceeded");
+    await auth.clearAccountError(c.id, c, "gpt-6.1-sol");
+    expect((await db.getProviderConnectionById(c.id)).studioBillingState.status).toBe("blocked");
+  });
   it.each([null, { parseError: response => ({ status: response.status, message: "limit" }) }])
   ("honors Retry-After even with an executor parser (%j)", async executor => {
     const before = Date.now();

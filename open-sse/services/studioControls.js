@@ -1,5 +1,6 @@
 import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, SPEED_NAMES, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
+import { OPENAI_POOL_MODELS } from "../config/openaiPlatform.js";
 
 export class ControlError extends Error {
   constructor(message) { super(message); this.status = 400; }
@@ -33,12 +34,15 @@ export function resolveControls(provider, model, body, requested = {}, providerT
   if (!CONTROL_PROVIDERS.has(provider)) return null;
   const parsed = splitControlModel(model);
   const base = parsed.model;
-  const isCodex = provider === "codex";
+  const isCodex = provider === "codex" || provider === "openai";
   const speedInputs = [requested.speed, parsed.speed, isCodex ? body.service_tier : body.speed].filter(v => v != null);
   const tier = choose(speedInputs.map(v => {
     if (typeof v !== "string" || !Object.hasOwn(SPEEDS, v.toLowerCase())) throw new ControlError(`Unsupported speed: ${String(v)}`);
     return SPEEDS[v.toLowerCase()];
   }), "speed");
+  if (provider === "openai" && tier === "ultrafast" && !OPENAI_POOL_MODELS.includes(base)) {
+    throw new ControlError(`Ultrafast has not been verified for ${base}`);
+  }
   if (!isCodex && tier === "priority" && !CLAUDE_FAST_ENABLED) {
     throw new ControlError("Claude Fast is disabled on this Studio because it spends extra-usage credits. Select Standard speed.");
   }
@@ -60,10 +64,14 @@ export function resolveControls(provider, model, body, requested = {}, providerT
 
 export function applyControls(body, controls) {
   if (!controls) return body;
-  if (controls.provider === "codex") {
-    if (controls.effort) body.reasoning = { ...body.reasoning, effort: controls.effort };
-    delete body.reasoning_effort;
-    if (controls.tier === "default") delete body.service_tier;
+  if (controls.provider === "codex" || controls.provider === "openai") {
+    const responses = controls.provider === "codex" || Object.hasOwn(body, "input");
+    if (controls.effort) {
+      if (responses) body.reasoning = { ...body.reasoning, effort: controls.effort };
+      else body.reasoning_effort = controls.effort;
+    }
+    if (responses) delete body.reasoning_effort;
+    if (controls.provider === "codex" && controls.tier === "default") delete body.service_tier;
     else if (controls.tier) body.service_tier = controls.tier;
   } else {
     if (controls.effort) body.output_config = { ...body.output_config, effort: controls.effort };
@@ -75,9 +83,9 @@ export function applyControls(body, controls) {
 
 export function assertOutboundControls(body, controls) {
   if (!controls) return;
-  const isCodex = controls.provider === "codex";
+  const isCodex = controls.provider === "codex" || controls.provider === "openai";
   const tier = isCodex ? body.service_tier || "default" : SPEEDS[body.speed || "standard"];
-  const effort = isCodex ? body.reasoning?.effort : body.output_config?.effort;
+  const effort = isCodex ? body.reasoning?.effort || body.reasoning_effort : body.output_config?.effort;
   if (controls.tier && tier !== controls.tier) throw new ControlError("Outbound speed differs from the requested speed");
   if (controls.effort && effort !== controls.effort) throw new ControlError("Outbound effort differs from the requested effort");
 }
@@ -87,9 +95,14 @@ export function controlLockKey(model, controls) {
 }
 
 export function connectionSupportsControls(connection, controls, now = Date.now()) {
-  if (!controls || controls.provider !== "codex") return true;
+  if (!controls || !["codex", "openai"].includes(controls.provider)) return true;
   const catalog = connection.providerSpecificData?.studioCapabilities;
   const caps = catalog?.models?.[controls.model];
+  if (controls.provider === "openai") {
+    return Boolean(caps && Number.isFinite(Date.parse(catalog.checkedAt))
+      && now - Date.parse(catalog.checkedAt) < CAPABILITY_TTL_MS
+      && (!controls.effort || caps.efforts?.includes(controls.effort)));
+  }
   if (controls.tier && controls.tier !== "default") {
     // Fail closed on missing/stale evidence; the selector refreshes first.
     if (!caps || now - Date.parse(catalog.checkedAt) > CAPABILITY_TTL_MS || !Number.isFinite(Date.parse(catalog.checkedAt))) return false;

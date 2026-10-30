@@ -7,6 +7,7 @@ export function getStatusVariant(isActive, effectiveStatus) {
 }
 
 export function getConnectionHealth(connection, now = Date.now()) {
+  if (connection.provider === "openai" && connection.studioBillingState?.status === "blocked") return { status: "unavailable", retryAfter: null };
   const expiries = Object.entries(connection)
     .filter(([key, value]) => key.startsWith("modelLock_") && Date.parse(value) > now)
     .map(([, value]) => value).sort();

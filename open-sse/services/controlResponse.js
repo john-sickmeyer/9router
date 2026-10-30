@@ -6,6 +6,9 @@ import { CONTROL_EVENTS as E, MAX_CONTROL_FRAME_BYTES, SPEEDS, CODEX_UNCONFIRMED
 export async function observeControlResponse(response, controls, onEvent = async () => {}) {
   if (!controls || !response.ok) return response;
   const codex = controls.provider === "codex";
+  const openai = controls.provider === "openai";
+  const responses = codex || openai;
+  let chatFinished = false;
   const expected = controls.tier;
   let reportedTier = null;
   let reportedEffort = null;
@@ -19,7 +22,7 @@ export async function observeControlResponse(response, controls, onEvent = async
   };
   const complete = async () => {
     if (terminal) return reject("Duplicate upstream completion");
-    const unconfirmedCodexSpeed = codex && expected && expected !== "default" && reportedTier === "default";
+    const unconfirmedCodexSpeed = responses && expected && expected !== "default" && reportedTier === "default";
     if (expected && expected !== "default" && reportedTier !== expected) {
       if (!unconfirmedCodexSpeed) return reject(`Requested ${expected}, but upstream reported ${reportedTier || "no speed"}`);
     }
@@ -28,18 +31,20 @@ export async function observeControlResponse(response, controls, onEvent = async
     }
     terminal = true;
     await onEvent({ state: "completed", reportedTier, reportedEffort, speedVerified: Boolean(expected && reportedTier === expected),
-      ...(unconfirmedCodexSpeed ? { warning: CODEX_UNCONFIRMED_SPEED_WARNING } : {}) });
+      ...(unconfirmedCodexSpeed ? { warning: codex ? CODEX_UNCONFIRMED_SPEED_WARNING : "OpenAI reported Standard for an accelerated request; served speed is unconfirmed." } : {}) });
   };
   const inspect = async (data, eventType) => {
     const type = data.type || eventType;
     if (eventType && data.type && eventType !== data.type) return reject("Conflicting upstream event types");
     if ([E.error, E.failed, E.incomplete].includes(type)) return reject("Upstream response failed or was incomplete");
-    const envelope = codex ? data.response || data : data.message || data;
-    const speed = codex ? envelope.service_tier : envelope.usage?.speed || data.usage?.speed;
+    const envelope = responses ? data.response || data : data.message || data;
+    if (responses && ["failed", "incomplete"].includes(envelope.status)) return reject("Upstream response did not complete successfully");
+    const speed = responses ? envelope.service_tier : envelope.usage?.speed || data.usage?.speed;
     if (speed) reportedTier = SPEEDS[speed] || speed;
     reportedEffort = envelope.reasoning?.effort || envelope.output_config?.effort || reportedEffort;
-    if ((codex && [E.completed, E.done].includes(type)) || (!codex && type === E.messageStop)) {
-      if (codex && envelope.status && envelope.status !== "completed") return reject("Upstream response did not complete successfully");
+    if (openai && data.choices?.some(choice => choice.finish_reason)) chatFinished = true;
+    if ((responses && [E.completed, E.done].includes(type)) || (!responses && type === E.messageStop)) {
+      if (responses && envelope.status && envelope.status !== "completed") return reject("Upstream response did not complete successfully");
       await complete();
     }
   };
@@ -60,6 +65,7 @@ export async function observeControlResponse(response, controls, onEvent = async
     const data = lines.filter(l => l.startsWith("data:")).map(l => l.slice(5).trimStart()).join("\n");
     const event = lines.find(l => l.startsWith("event:"))?.slice(6).trim();
     if (data === "[DONE]") {
+      if (openai && chatFinished && !terminal) await complete();
       if (!terminal) await reject("Upstream ended without a verified completion");
     } else if (data) {
       let parsed;

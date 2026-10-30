@@ -1,5 +1,6 @@
 import REGISTRY from "../providers/registry/index.js";
 import { STUDIO_MODEL_ALIASES, isStudioCuratedCatalogEnabled } from "../config/studioControls.js";
+import { isOpenaiPoolEnabled, isOpenaiPoolModel, OPENAI_POOL_PROVIDER } from "../config/openaiPlatform.js";
 
 // Alias→id derived from registry single-source: id→id, alias→id, aliases[]→id.
 // Media-only providers without a registry transport entry keep explicit aliases here.
@@ -109,6 +110,9 @@ export async function getModelInfoCore(modelStr, aliasesOrGetter) {
       : aliasesOrGetter;
 
   // Resolve alias
+  if (!resolveModelAliasFromMap(parsed.model, aliases) && isOpenaiPoolEnabled() && isOpenaiPoolModel(parsed.model)) {
+    return { provider: OPENAI_POOL_PROVIDER, model: parsed.model };
+  }
   const resolved =
     resolveModelAliasFromMap(parsed.model, aliases) ||
     (isStudioCuratedCatalogEnabled() && resolveModelAliasFromMap(parsed.model, STUDIO_MODEL_ALIASES)) ||

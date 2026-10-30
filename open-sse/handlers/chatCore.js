@@ -1,5 +1,6 @@
 import { applyControls } from "../services/studioControls.js";
 import { observeControlResponse } from "../services/controlResponse.js";
+import { preflightOpenaiStream } from "../services/openaiPlatform.js";
 import { detectFormat, getTargetFormat, resolveTransport } from "../services/provider.js";
 import { translateRequest } from "../translator/index.js";
 import { applyThinking, extractThinking, stripThinkingSuffix, validateThinkingIntent } from "../translator/concerns/thinkingUnified.js";
@@ -184,7 +185,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // Native passthrough: CLI tool and provider are the same ecosystem
   // Skip all translation/normalization — only model and Bearer are swapped
   const clientTool = detectClientTool(clientRawRequest?.headers || {}, body);
-  const passthrough = isNativePassthrough(clientTool, provider);
+  const passthrough = isNativePassthrough(clientTool, provider)
+    || (["openai", "codex"].includes(provider) && sourceFormat === FORMATS.OPENAI_RESPONSES && targetFormat === FORMATS.OPENAI_RESPONSES);
 
   // Expose raw client headers to translators/executors for session-id resolution
   if (credentials) credentials.rawHeaders = clientRawRequest?.headers || {};
@@ -422,7 +424,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     providerUrl = result.url;
     providerHeaders = result.headers;
     finalBody = result.transformedBody;
-    await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null });
+    await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.reasoning_effort || finalBody?.output_config?.effort || null });
     providerResponseFormat = result.responseFormat || targetFormat;
     const renamedToolNames = takeRenamedToolNames(translatedBody);
     if (renamedToolNames?.size) {
@@ -506,10 +508,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   }
 
   // Provider returned error
+  if (provider === "openai") providerResponse = await preflightOpenaiStream(providerResponse);
   if (!providerResponse.ok) {
     await onControlEvent?.({ state: "failed", status: providerResponse.status });
     trackPendingRequest(model, provider, connectionId, false, true);
-    const { statusCode, message, resetsAtMs } = await parseUpstreamError(providerResponse, executor);
+    const { statusCode, message, resetsAtMs, upstreamError } = await parseUpstreamError(providerResponse, executor);
     appendRequestLog({ model, provider, connectionId, status: `FAILED ${statusCode}` }).catch(() => { });
     saveRequestDetail(buildRequestDetail({
       provider, model, connectionId,
@@ -528,14 +531,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
-    return createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers));
+    return { ...createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers)), upstreamError };
   }
 
   try {
     providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined);
   } catch (error) {
     trackPendingRequest(model, provider, connectionId, false, true);
-    return createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message);
+    return { ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message), fallbackSafe: false };
   }
 
   const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log };
@@ -548,14 +551,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // this path — handleForcedSSEToJson returns null when the body is not SSE.
   if (!clientRequestedStreaming && (providerRequiresStreaming || providerResponseFormat === FORMATS.OPENAI_RESPONSES)) {
     const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, toolNameMap, trackDone, appendLog });
-    if (result) { streamController.handleComplete(); return result; }
+    if (result) { streamController.handleComplete(); return { ...result, fallbackSafe: false }; }
   }
 
   // True non-streaming response
   if (!stream) {
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
-    return result;
+    return { ...result, fallbackSafe: false };
   }
 
   // Streaming response

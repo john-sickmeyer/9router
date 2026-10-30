@@ -31,10 +31,10 @@ def request(port, data_dir, path, payload=None, admin=False, headers=None):
         return error.code, error.read()
 
 
-def catalog_contract(content, anthropic=False):
+def catalog_contract(content, anthropic=False, pooled=False):
     models = json.loads(content)['data']
     expected = (CLAUDE if anthropic else
-        [f'cx/{model}@{speed}' for model in CODEX for speed in SPEEDS] + [f'cc/{model}' for model in CLAUDE])
+        [f'{"" if pooled else "cx/"}{model}@{speed}' for model in CODEX for speed in SPEEDS] + [f'cc/{model}' for model in CLAUDE])
     if sorted(model['id'] for model in models) != sorted(expected):
         raise RuntimeError('Model catalog no longer matches the approved Studio choices')
     for model in models:
@@ -45,7 +45,7 @@ def catalog_contract(content, anthropic=False):
 
 
 def live_contract(status, catalog, baseline=None):
-    catalog_contract(catalog)
+    catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False))
     expected = [f'cx/{model}' for model in CODEX] + [f'cc/{model}' for model in CLAUDE]
     choices = status['choices']
     if sorted(row['id'] for row in choices) != sorted(expected):

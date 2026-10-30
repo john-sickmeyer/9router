@@ -1,3 +1,5 @@
+import { OPENAI_CURRENT_MODELS, OPENAI_RESPONSES_URL, OPENAI_MODELS_URL } from "../../config/openaiPlatform.js";
+
 export default {
   id: "openai",
   priority: 30,
@@ -16,18 +18,28 @@ export default {
   thinkingConfig: {
     options: [
       "auto",
-      "none",
       "low",
       "medium",
       "high",
+      "xhigh",
+      "max",
     ],
     defaultMode: "auto",
   },
   transport: {
     baseUrl: "https://api.openai.com/v1/chat/completions",
-    forceStream: true,
+    validateUrl: OPENAI_MODELS_URL,
+    forceStream: false,
   },
+  transports: [
+    { format: "openai", baseUrl: "https://api.openai.com/v1/chat/completions" },
+    { format: "openai-responses", baseUrl: OPENAI_RESPONSES_URL, thinkingFormat: "openai-responses" },
+  ],
   models: [
+    ...OPENAI_CURRENT_MODELS.map(model => ({
+      ...model,
+      targetFormat: "openai-responses", supportedFormats: ["openai-responses"],
+    })),
     { id: "gpt-5.5", name: "GPT-5.5" },
     { id: "gpt-5.4", name: "GPT-5.4" },
     { id: "gpt-5.4-mini", name: "GPT-5.4 Mini" },

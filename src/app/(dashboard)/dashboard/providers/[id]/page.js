@@ -9,6 +9,7 @@ import { Card, Button, Badge, Input, Modal, CardSkeleton, OAuthModal, KiroOAuthW
 import { OAUTH_PROVIDERS, APIKEY_PROVIDERS, FREE_PROVIDERS, FREE_TIER_PROVIDERS, WEB_COOKIE_PROVIDERS, getProviderAlias, isOpenAICompatibleProvider, isAnthropicCompatibleProvider, AI_PROVIDERS } from "@/shared/constants/providers";
 import { getModelsByProviderId, getModelKind } from "@/shared/constants/models";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
+import { OPENAI_POOL_MODELS } from "open-sse/config/openaiPlatform.js";
 import { useCopyToClipboard } from "@/shared/hooks/useCopyToClipboard";
 import { useModelCaps } from "@/shared/hooks/useModelCaps";
 import { translate } from "@/i18n/runtime";
@@ -75,6 +76,7 @@ export default function ProviderDetailPage() {
   const [providerStrategy, setProviderStrategy] = useState(null);
   const [providerStickyLimit, setProviderStickyLimit] = useState("");
   const [thinkingMode, setThinkingMode] = useState("auto");
+  const [openaiSpeed, setOpenaiSpeed] = useState("standard");
   const [autoPing, setAutoPing] = useState({ enabled: false, connections: {}, schedules: {} });
   const [scheduleConnection, setScheduleConnection] = useState(null);
   const [suggestedModels, setSuggestedModels] = useState([]);
@@ -189,6 +191,8 @@ export default function ProviderDetailPage() {
     return levels && levels.includes(thinkingMode) ? thinkingMode : null;
   };
   const providerStorageAlias = isCompatible ? providerId : providerAlias;
+  const withSpeed = modelId => providerId === "openai" && OPENAI_POOL_MODELS.includes(modelId)
+    ? `${modelId}@${openaiSpeed}` : modelId;
   // Union of levels across this provider's reasoning models — drives the level picker options.
   // Include custom models too (e.g. manually added gpt-5.6-sol → max).
   const providerThinkingLevels = (() => {
@@ -1150,7 +1154,7 @@ export default function ProviderDetailPage() {
       const res = await fetch("/api/models/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: `${providerStorageAlias}/${modelId}` }),
+        body: JSON.stringify({ model: `${providerStorageAlias}/${withSpeed(modelId)}${resolveThinkingSuffix(modelId) ? `(${resolveThinkingSuffix(modelId)})` : ""}` }),
       });
       const data = await res.json();
       setModelTestResults((prev) => ({ ...prev, [modelId]: data.ok ? "ok" : "error" }));
@@ -1206,7 +1210,7 @@ export default function ProviderDetailPage() {
           <ModelRow
             key={`${model.source}-${model.fullModel}`}
             model={{ id: model.id, name: model.name }}
-            fullModel={`${providerDisplayAlias}/${model.id}`}
+            fullModel={`${providerDisplayAlias}/${withSpeed(model.id)}`}
             alias={model.alias}
             copied={copied}
             onCopy={copy}
@@ -1238,7 +1242,7 @@ export default function ProviderDetailPage() {
             <ModelRow
               key={model.id}
               model={model}
-              fullModel={`${providerDisplayAlias}/${model.id}`}
+              fullModel={`${providerDisplayAlias}/${withSpeed(model.id)}`}
               alias={existingAlias}
               copied={copied}
               onCopy={copy}
@@ -1793,6 +1797,11 @@ export default function ProviderDetailPage() {
                 ))}
               </select>
             )}
+            {providerId === "openai" && <select value={openaiSpeed} onChange={e => setOpenaiSpeed(e.target.value)}
+              aria-label="OpenAI speed" title="Speed for GPT-6.1 Sol and GPT-6 Astra; accelerated tiers cost more and require account eligibility"
+              className="rounded-md border border-border bg-background px-2 py-1 text-xs focus:border-primary focus:outline-none">
+              {["standard", "fast", "ultrafast"].map(value => <option key={value} value={value}>Speed: {value}</option>)}
+            </select>}
           </div>
           {!isCompatible && (() => {
             const allIds = [

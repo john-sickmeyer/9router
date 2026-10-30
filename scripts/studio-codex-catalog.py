@@ -32,7 +32,7 @@ def build_catalog(catalog, config):
             entry = copy.deepcopy(original)
             entry["slug"] = f"{slug}@{speed}"
             entry["display_name"] = name if speed == "standard" else f"{name} {speed.capitalize()}"
-            entry["description"] = f"{speed.capitalize()} speed via 9Router. Choose Thinking separately."
+            entry["description"] = f"{speed.capitalize()} speed via 9Router: OpenAI API first, then Codex OAuth. Choose Thinking separately."
             entry["priority"] = len(selected) + 1
             # The alias selects speed. Do not expose a second, conflicting speed
             # control or let a catalog default override the router selection.

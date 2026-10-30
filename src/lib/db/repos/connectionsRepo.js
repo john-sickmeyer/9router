@@ -14,6 +14,10 @@ const MODEL_LOCK_PREFIX = "modelLock_";
 
 function resetHealthStateOnActivation(existing, patch) {
   if (patch?.testStatus !== "active") return patch;
+  if (existing.studioBillingState && !Object.hasOwn(patch, "studioBillingState")) {
+    return { ...patch, testStatus: "unavailable", lastError: existing.lastError,
+      lastErrorAt: existing.lastErrorAt, errorCode: existing.errorCode };
+  }
 
   // Credential validation cannot restore quota or prove that another model
   // recovered. Only an explicit model success or expiry may clear those locks.
