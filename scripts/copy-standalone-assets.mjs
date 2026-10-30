@@ -30,6 +30,12 @@ export function copyStandaloneAssets({ projectRoot = process.cwd(), distDir = pr
     console.log(`[standalone-assets] Copied public assets to ${publicDestination}`);
   }
 
+  const kimiAdapter = resolve(projectRoot, "scripts/studio-kimi-acp.mjs");
+  if (existsSync(kimiAdapter)) {
+    mkdirSync(resolve(standaloneDir, "scripts"), { recursive: true });
+    cpSync(kimiAdapter, resolve(standaloneDir, "scripts/studio-kimi-acp.mjs"));
+  }
+
   // Without it beside server.js the standalone build serves requests unsanitized.
   const serverWrapperSource = resolve(projectRoot, "custom-server.js");
   const serverWrapperDestination = resolve(standaloneDir, "custom-server.js");

@@ -47,6 +47,13 @@ const setBalance = body => route.POST(new Request("http://localhost/api/studio/o
 const readBalance = async () => (await (await route.GET()).json()).credit;
 
 describe("credit checkpoint through real API, usage database and credential selection", () => {
+  it("saves a paused account checkpoint without enabling API routing", async () => {
+    const api = await db.createProviderConnection({ provider: "openai", authType: "apikey", apiKey: "fixture", isActive: false });
+    expect((await setBalance({ balanceUsd: 113.09, connectionIds: [api.id] })).status).toBe(200);
+    expect((await readBalance()).remainingUsd).toBe(113.09);
+    expect((await db.getProviderConnectionById(api.id)).isActive).toBe(false);
+    expect(await auth.getProviderCredentials("openai")).toBeNull();
+  });
   it("deducts only scoped API costs once, persists them and switches to OAuth at zero", async () => {
     const api = await db.createProviderConnection({ provider: "openai", authType: "apikey", apiKey: "fixture", name: "API" });
     const oauth = await db.createProviderConnection({ provider: "codex", authType: "oauth", accessToken: "fixture", name: "OAuth" });

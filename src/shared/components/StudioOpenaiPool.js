@@ -7,6 +7,7 @@ export default function StudioOpenaiPool({ pool, reload }) {
   const [message, setMessage] = useState("");
   const [balance, setBalance] = useState("");
   if (!pool?.enabled) return null;
+  const balanceConnectionIds = pool.credit?.connectionIds || pool.accounts.map(a => a.id);
   async function retry(connectionId) {
     setBusy(connectionId);
     try {
@@ -25,7 +26,7 @@ export default function StudioOpenaiPool({ pool, reload }) {
     try {
       const response = await fetch("/api/studio/openai-pool", { method: "POST",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "set-credit-balance",
-          balanceUsd: Number(balance), connectionIds: pool.credit?.connectionIds || pool.accounts.map(a => a.id) }) });
+          balanceUsd: Number(balance), connectionIds: balanceConnectionIds }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Could not save balance");
       setBalance(""); setMessage("Balance checkpoint saved. Subsequent API costs will be deducted automatically.");
@@ -40,7 +41,7 @@ export default function StudioOpenaiPool({ pool, reload }) {
     {pool.credit && <div className="border border-border rounded-lg p-3 space-y-1" aria-label="OpenAI estimated credit balance">
       <p className="font-semibold">Estimated credit remaining: ${pool.credit.remainingUsd.toFixed(2)}</p>
       <p className="text-sm text-text-muted">${pool.credit.spentUsd.toFixed(2)} recorded since the ${pool.credit.balanceUsd.toFixed(2)} checkpoint on {new Date(pool.credit.recordedAt).toLocaleString()}.</p>
-      <p className="text-sm">{pool.credit.exhausted ? "Estimated credits exhausted — new requests use eligible OAuth accounts." : "Using API credits first."}</p>
+      <p className="text-sm">{!pool.accounts.length ? "API accounts paused. Requests use Codex OAuth." : pool.credit.exhausted ? "Estimated credits exhausted — new requests use eligible OAuth accounts." : "Using API credits first."}</p>
       {pool.credit.unpricedRequests > 0 && <p className="text-amber-600" role="alert">{pool.credit.unpricedRequests} request(s) could not be priced. The estimate may overstate remaining credit.</p>}
     </div>}
     {!pool.credit && <p className="text-sm text-text-muted">No balance checkpoint saved yet. API-first routing currently relies on actual billing responses.</p>}
@@ -48,7 +49,7 @@ export default function StudioOpenaiPool({ pool, reload }) {
       <label className="text-sm">Current OpenAI balance (USD)
         <input aria-label="Current OpenAI balance in USD" type="number" min="0" step="0.01" required value={balance} onChange={event => setBalance(event.target.value)} className="block border border-border bg-transparent rounded px-3 py-2 mt-1" />
       </label>
-      <button type="submit" className="border border-border rounded px-4 py-2 disabled:opacity-50" disabled={busy !== null || !balance || !pool.accounts.length}>{busy === "balance" ? "Saving..." : "Save balance checkpoint"}</button>
+      <button type="submit" className="border border-border rounded px-4 py-2 disabled:opacity-50" disabled={busy !== null || !balance || !balanceConnectionIds.length}>{busy === "balance" ? "Saving..." : "Save balance checkpoint"}</button>
     </form>
     <p className="text-sm text-text-muted">This is a local estimate for the OpenAI accounts sharing this balance. It cannot see top-ups, expiration, missing usage, or billing adjustments. After adding credits, save the new balance here; no separate reset is needed.</p>
     {pool.metadataStale && <p className="text-amber-600" role="alert">Model and speed metadata needs review. Last reviewed: {pool.metadataReviewedAt}.</p>}

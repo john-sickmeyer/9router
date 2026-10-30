@@ -17,6 +17,13 @@ function createBuildFixture(distDir) {
 }
 
 describe("standalone build assets", () => {
+  it("ships the Kimi metadata adapter with immutable releases", () => {
+    const projectRoot = createBuildFixture(".next");
+    mkdirSync(join(projectRoot, "scripts"));
+    writeFileSync(join(projectRoot, "scripts/studio-kimi-acp.mjs"), "adapter");
+    copyStandaloneAssets({ projectRoot });
+    expect(readFileSync(join(projectRoot, ".next/standalone/scripts/studio-kimi-acp.mjs"), "utf8")).toBe("adapter");
+  });
   it("copies static and public assets into the default standalone layout", () => {
     const projectRoot = createBuildFixture(".next");
 
