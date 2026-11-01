@@ -44,6 +44,9 @@ export const MAX_RATE_LIMIT_COOLDOWN_MS = 30 * 60 * 1000;
 // Quota diagnostics must not hold up account fallback on an unavailable endpoint.
 export const QUOTA_LOOKUP_TIMEOUT_MS = 5000;
 
+// Match the existing five-minute usage refresh cadence; manual refresh bypasses it.
+export const CODEX_QUOTA_RECHECK_MS = 5 * 60 * 1000;
+
 // Cooldown durations (ms)
 const COOLDOWN = {
   long: 2 * 60 * 1000,

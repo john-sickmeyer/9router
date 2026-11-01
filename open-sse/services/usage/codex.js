@@ -70,6 +70,16 @@ function appendCodexQuotaWindows(quotas, prefix, snapshot) {
   return added;
 }
 
+function quotaAllowsRecovery(snapshot) {
+  const limit = getCodexRateLimitBody(snapshot);
+  if (limit?.allowed !== true || limit.limit_reached !== false) return false;
+  const windows = [limit.primary_window || limit.primary, limit.secondary_window || limit.secondary].filter(Boolean);
+  return windows.length > 0 && windows.every(window => {
+    const used = window.used_percent ?? window.percent_used;
+    return typeof used === "number" && Number.isFinite(used) && used >= 0 && used < 100;
+  });
+}
+
 function getCodexReviewRateLimit(data) {
   if (data.code_review_rate_limit || data.review_rate_limit) {
     return data.code_review_rate_limit || data.review_rate_limit;
@@ -104,13 +114,16 @@ function getCodexSparkRateLimit(data) {
   }) || null;
 }
 
-export async function getCodexUsage(accessToken, proxyOptions = null) {
+export async function getCodexUsage(accessToken, proxyOptions = null, options = {}) {
   try {
+    const accountId = getCodexAccountId(options.providerSpecificData);
     const response = await proxyAwareFetch(CODEX_CONFIG.usageUrl, {
       method: "GET",
+      signal: options.signal,
       headers: {
         "Authorization": `Bearer ${accessToken}`,
         "Accept": "application/json",
+        ...(accountId ? { "ChatGPT-Account-ID": accountId } : {}),
       },
     }, proxyOptions);
 
@@ -134,6 +147,14 @@ export async function getCodexUsage(accessToken, proxyOptions = null) {
       limitReached: getCodexRateLimitBody(normalRateLimit)?.limit_reached || false,
       reviewLimitReached: getCodexRateLimitBody(reviewRateLimit)?.limit_reached || false,
       sparkLimitReached: getCodexRateLimitBody(sparkRateLimit)?.limit_reached || false,
+      quotaRecovery: {
+        // Unrecognized scoped windows cannot prove that a model's quota recovered.
+        normal: quotaAllowsRecovery(normalRateLimit)
+          && !(data.additional_rate_limits || []).some(limit => limit !== reviewRateLimit && limit !== sparkRateLimit)
+          && !Object.keys(data.rate_limits_by_limit_id || {}).some(id => !["codex", "code_review", "codex_review", "review", "gpt-5.3-codex-spark", "gpt_5_3_codex_spark", "spark"].includes(id)),
+        review: quotaAllowsRecovery(reviewRateLimit),
+        spark: quotaAllowsRecovery(sparkRateLimit),
+      },
       resetCredits: { availableCount: availableResetCredits },
       quotas,
     };

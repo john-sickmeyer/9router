@@ -5,6 +5,7 @@ import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/con
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil, getModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
+import { codexQuotaLockUpdate, recoverCodexQuotaForSelection } from "./codexQuota.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -35,6 +36,10 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
   const requestedModel = options?.requestedModel || model;
   const lockKey = controlLockKey(model, options.requestControls);
   const isLocked = c => isModelLockActive(c, model) || isModelLockActive(c, lockKey);
+  // Quota HTTP reads run outside the shared selection mutex.
+  if (resolveProviderId(provider) === "codex") {
+    await recoverCodexQuotaForSelection(model, options.requestControls, excludeSet, requestedModel);
+  }
   // Acquire mutex to prevent race conditions
   const currentMutex = selectionMutex;
   let resolveMutex;
@@ -285,6 +290,8 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,
+    ...(resolveProviderId(provider) === "codex"
+      ? codexQuotaLockUpdate(model, Object.values(lockUpdate)[0], status, reason) : {}),
     testStatus: "unavailable",
     lastError: reason,
     errorCode: status,

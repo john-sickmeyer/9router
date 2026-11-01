@@ -5,6 +5,7 @@ import { getProviderConnectionById } from "@/lib/localDb";
 import { consumeCodexRateLimitResetCredit, getCodexRateLimitResetCredits } from "open-sse/services/usage.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { refreshAndUpdateCredentials } from "../route.js";
+import { refreshCodexQuota } from "@/sse/services/codexQuota.js";
 
 const AUTH_EXPIRED_PATTERNS = ["expired", "authentication", "unauthorized", "401", "re-authorize"];
 
@@ -147,6 +148,7 @@ export async function POST(request, { params }) {
       }
     }
 
+    if (consumeResult.ok) await refreshCodexQuota(connection, { force: true });
     return getResponseForConsumeResult(consumeResult, redeemRequestId);
   } catch (error) {
     const provider = connection?.provider ?? "unknown";
