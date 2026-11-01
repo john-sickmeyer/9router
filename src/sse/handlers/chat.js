@@ -1,6 +1,6 @@
 import "open-sse/index.js";
 import { splitControlModel, resolveControls, controlLockKey } from "open-sse/services/studioControls.js";
-import { refreshControlCapabilities, refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities.js";
+import { refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities.js";
 import { OPENAI_POOL_PROVIDER, OPENAI_ELIGIBILITY_RECHECK_MS } from "open-sse/config/openaiPlatform.js";
 import { classifyOpenaiFailure } from "open-sse/services/openaiPlatform.js";
 import { blockOpenaiBilling, releaseBillingRetry } from "@/lib/studio/openaiBilling.js";
@@ -297,9 +297,6 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   }
   if (requestControls) model = requestControls.model;
   if (provider === "openai") await refreshOpenaiControlCapabilities();
-  if (requestControls?.provider === "codex" && requestControls.tier && requestControls.tier !== "default") {
-    await refreshControlCapabilities();
-  }
   const controlRequestId = poolOutcome?.requestId || crypto.randomUUID();
 
   // Routing shown in the unified "▶" line (client model → provider/model)

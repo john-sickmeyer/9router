@@ -26,13 +26,13 @@ export default function StudioControls() {
   const choice = choices.find(c => c.id === model);
   const alias = `${model}@${speed}${effort === "client" ? "" : `(${effort})`}`;
   async function refresh() {
-    setBusy(true); setMessage("Refreshing account capabilities…");
+    setBusy(true); setMessage("Refreshing OpenAI model availability…");
     try {
       const res = await fetch("/api/studio", { method: "POST" });
       if (!res.ok) throw new Error(`Refresh failed (${res.status})`);
       const body = await res.json();
       const failures = body.results.filter(r => !r.ok).length;
-      setMessage(failures ? `${failures} account refreshes failed. See the account timestamps below.` : "Account capabilities refreshed.");
+      setMessage(failures ? `${failures} OpenAI model refreshes failed.` : "OpenAI model availability refreshed.");
       await load();
     } catch (e) { setMessage(e.message); }
     finally { setBusy(false); }
@@ -54,9 +54,10 @@ export default function StudioControls() {
       <p className="text-sm text-amber-600">Codex can report “default” even when accelerated requests run faster. Such requests are marked unconfirmed below: the selected controls were sent, but the provider did not confirm the served or billed tier.</p>
     </section>
     <section className="space-y-3">
-      <div className="flex gap-4 items-center"><h2 className="text-xl font-semibold">Accounts</h2><button disabled={busy} onClick={refresh} className="border border-border rounded px-4 py-2 disabled:opacity-50">{busy ? "Refreshing…" : "Refresh capabilities"}</button></div>
+      <div className="flex gap-4 items-center"><h2 className="text-xl font-semibold">Accounts</h2>{data?.openaiPool?.accounts.length > 0 && <button disabled={busy} onClick={refresh} className="border border-border rounded px-4 py-2 disabled:opacity-50">{busy ? "Refreshing…" : "Refresh OpenAI models"}</button>}</div>
+      <p className="text-sm text-text-muted">All Codex accounts can use Standard, Fast and Ultrafast. Requests retain the selected speed when switching accounts.</p>
       <p role="status">{message}</p>
-      <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Account</th><th>Provider plan</th><th>Speed eligibility</th><th>Last checked</th></tr></thead><tbody>{data?.accounts.map(a => <tr className="border-t border-border" key={a.id}><td className="p-2">{a.name}</td><td>{a.provider} · {a.plan || "provider managed"}</td><td>{a.provider === "claude" ? "Confirmed per response" : a.stale ? "Refresh needed" : a.ultrafast ? "Standard / Fast / Ultrafast" : "Standard / Fast"}</td><td>{a.checkedAt ? new Date(a.checkedAt).toLocaleString() : "—"}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Account</th><th>Provider</th><th>Speed modes</th></tr></thead><tbody>{data?.accounts.map(a => <tr className="border-t border-border" key={a.id}><td className="p-2">{a.name}</td><td>{a.provider}</td><td>{a.provider === "claude" ? "Confirmed per response" : a.speeds.map(speed => speed[0].toUpperCase() + speed.slice(1)).join(" / ")}</td></tr>)}</tbody></table></div>
     </section>
     <section className="space-y-3"><h2 className="text-xl font-semibold">Recent request checks</h2><p className="text-sm text-text-muted">“Sent” is the final provider request. “Reported” is the provider response. An absent reported effort means the provider did not echo it. Prompts and credentials are excluded from this log.</p>
       <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Time / request</th><th>Account / model</th><th>State</th><th>Sent speed / effort</th><th>Reported speed / effort</th></tr></thead><tbody>{[...(data?.recent || [])].reverse().slice(0, 40).map((r, i) => <tr className="border-t border-border" key={`${r.requestId}-${i}`}><td className="p-2">{new Date(r.time).toLocaleTimeString()}<br/><code>{r.requestId.slice(0, 8)}</code></td><td>{accounts.find(a => a.id === r.connectionId)?.name || r.connectionId?.slice(0, 8)}<br/>{r.provider} / {r.model}</td><td>{r.state}{r.fallbackReason && <p className="text-text-muted">{r.fallbackReason}</p>}{r.error && <p className="text-red-500">{r.error}</p>}{r.warning && <p className="text-amber-600" title={r.warning}>Served speed unconfirmed</p>}</td><td>{r.sentTier || "—"} / {r.sentEffort || "—"}</td><td>{r.reportedTier || "—"} / {r.reportedEffort || "—"}</td></tr>)}</tbody></table></div>

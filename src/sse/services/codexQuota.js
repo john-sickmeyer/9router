@@ -3,7 +3,7 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { getModelMeta, getModelQuotaFamily } from "open-sse/config/providerModels.js";
 import { CODEX_QUOTA_RECHECK_MS, QUOTA_LOOKUP_TIMEOUT_MS } from "open-sse/config/errorConfig.js";
 import { MODEL_LOCK_PREFIX } from "open-sse/services/accountFallback.js";
-import { connectionSupportsControls, controlLockKey } from "open-sse/services/studioControls.js";
+import { controlLockKey } from "open-sse/services/studioControls.js";
 import { getCodexUsage } from "open-sse/services/usage/codex.js";
 import { checkAndRefreshToken } from "./tokenRefresh.js";
 
@@ -77,7 +77,7 @@ export async function recoverCodexQuotaForSelection(model, controls, excluded, r
   const relevant = new Set([`${MODEL_LOCK_PREFIX}${model}`, `${MODEL_LOCK_PREFIX}${lockKey}`, `${MODEL_LOCK_PREFIX}__all`]);
   const connections = (await getProviderConnections({ provider: "codex", isActive: true })).filter(connection => {
     const enabled = connection.providerSpecificData?.enabledModels;
-    return !excluded.has(connection.id) && connectionSupportsControls(connection, controls)
+    return !excluded.has(connection.id)
       && !(Array.isArray(enabled) && enabled.length && requestedModel && !enabled.includes(requestedModel));
   });
   const locked = connection => [...relevant].some(key => Date.parse(connection[key]) > Date.now());

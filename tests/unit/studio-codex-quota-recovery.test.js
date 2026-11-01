@@ -47,9 +47,7 @@ function providerUsage(allowed = true) {
 async function connection(overrides = {}) {
   const c = await db.createProviderConnection({ provider: "codex", authType: "oauth",
     name: crypto.randomUUID(), accessToken: crypto.randomUUID(), expiresAt: future,
-    providerSpecificData: { chatgptAccountId: "fixture-account", studioCapabilities: {
-      checkedAt: new Date().toISOString(), models: { [model]: { tiers: ["ultrafast"], efforts: ["max"] } },
-    } },
+    providerSpecificData: { chatgptAccountId: "fixture-account" },
   });
   ids.push(c.id);
   return db.updateProviderConnection(c.id, { testStatus: "unavailable", errorCode: 429,

@@ -14,7 +14,7 @@ vi.mock("@/lib/localDb", () => ({
 vi.mock("@/lib/db/repos/apiKeysRepo.js", () => ({ getApiKeyByKey: async () => fx.allow ? { id: "fixture", access: { restricted: true, allow: fx.allow } } : {} }));
 vi.mock("@/lib/db/repos/combosRepo.js", () => ({ getCombos: async () => [] }));
 vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: async () => ({}), pickProxyPoolId: vi.fn() }));
-vi.mock("@/lib/studio/capabilities", () => ({ refreshControlCapabilities: async () => [], refreshOpenaiControlCapabilities: async () => [] }));
+vi.mock("@/lib/studio/capabilities", () => ({ refreshOpenaiControlCapabilities: async () => [] }));
 vi.mock("@/lib/studio/audit.js", () => ({ isControlDraining: () => false, recordControl: async e => fx.events.push(e) }));
 vi.mock("@/sse/services/tokenRefresh.js", () => ({ checkAndRefreshToken: async (_p, c) => c, updateProviderCredentials: vi.fn() }));
 vi.mock("@/lib/usageDb.js", () => ({ trackPendingRequest: vi.fn(), appendRequestLog: async () => {}, saveRequestDetail: async () => {}, saveRequestUsage: async entry => { fx.usage.push(entry); } }));

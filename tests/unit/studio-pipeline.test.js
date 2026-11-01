@@ -11,7 +11,7 @@ vi.mock("@/lib/localDb", () => ({
   getProxyPools: async () => [], validateApiKey: async () => true,
 }));
 vi.mock("@/lib/network/connectionProxy", () => ({ resolveConnectionProxyConfig: async () => ({}), pickProxyPoolId: vi.fn() }));
-vi.mock("@/lib/studio/capabilities", () => ({ refreshControlCapabilities: async () => [] }));
+vi.mock("@/lib/studio/capabilities", () => ({ refreshOpenaiControlCapabilities: async () => { throw new Error("Codex must not refresh account capabilities"); } }));
 vi.mock("@/lib/studio/audit.js", () => ({ isControlDraining: () => false, recordControl: async e => fx.events.push(e) }));
 vi.mock("@/sse/services/keyAccess.js", () => ({ getKeyAccessContext: async () => null, enforceKeyAccess: async () => null, filterAdapterModels: async (_ctx, models) => models }));
 vi.mock("@/sse/services/tokenRefresh.js", () => ({ checkAndRefreshToken: async (_p, c) => c, updateProviderCredentials: vi.fn() }));
@@ -35,7 +35,7 @@ vi.mock("../../open-sse/executors/index.js", async () => {
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 beforeEach(() => {
   fx.sent = []; fx.events = []; fx.failFirst = false; fx.reportedTier = null; fx.usage = null;
-  fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture", providerSpecificData: { studioCapabilities: { checkedAt: new Date().toISOString(), models: { "gpt-6-astra": { tiers: ["ultrafast"], efforts: ["max", "ultra"] } } } } }));
+  fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture" }));
 });
 describe("Studio client-to-provider pipeline", () => {
   it("rotates Claude after weekly exhaustion and skips it on subsequent requests", async () => {
@@ -54,9 +54,8 @@ describe("Studio client-to-provider pipeline", () => {
   });
   it.each(["gpt-6.1-sol", "gpt-6-astra"].flatMap(model => ["standard", "fast", "ultrafast"].flatMap(speed => ["low", "high"].map(effort => ({ model, speed, effort })))))
   ("routes the native picker alias $model@$speed with independent $effort effort", async ({ model, speed, effort }) => {
-    for (const account of fx.accounts) {
-      account.providerSpecificData.studioCapabilities.models[model] = { tiers: ["priority", "ultrafast"], efforts: ["low", "high", "max"] };
-    }
+    fx.accounts[0].providerSpecificData = { studioCapabilities: { checkedAt: "2000-01-01T00:00:00Z",
+      models: { [model]: { tiers: ["priority"], efforts: [] } } } };
     fx.failFirst = true;
     const response = await handleChat(new Request("http://localhost/v1/responses", {
       method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.162.1" },

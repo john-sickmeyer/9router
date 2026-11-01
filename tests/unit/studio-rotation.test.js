@@ -14,26 +14,29 @@ beforeEach(() => {
   db.getProviderConnections.mockImplementation(async () => accounts);
   db.updateProviderConnection.mockImplementation(async (id, update) => Object.assign(accounts.find(c => c.id === id), update));
 });
-describe("eligible account rotation", () => {
+describe("all-account Codex speed rotation", () => {
   it("does not let an accelerated-tier limit block Standard", async () => {
     accounts = accounts.slice(1);
     await markAccountUnavailable("max1", 429, "Fast capacity limit", "codex", controlLockKey(model, requestControls));
     expect((await getProviderCredentials("codex", null, model, { requestControls })).connectionId).toBe("max2");
     expect((await getProviderCredentials("codex", null, model, { requestControls: { ...requestControls, tier: "default" } })).connectionId).toBe("max1");
   });
-  it("switches after a real quota lock, retains controls and never chooses a Pro-only account", async () => {
+  it("uses the formerly excluded account and rotates through every account after real limits", async () => {
     const first = await getProviderCredentials("codex", null, model, { requestControls });
-    expect(first.connectionId).toBe("max1");
+    expect(first.connectionId).toBe("pro");
     expect((await markAccountUnavailable(first.connectionId, 429, "Rate limit reached", "codex", model)).shouldFallback).toBe(true);
     const second = await getProviderCredentials("codex", new Set([first.connectionId]), model, { requestControls });
-    expect(second.connectionId).toBe("max2");
+    expect(second.connectionId).toBe("max1");
     await markAccountUnavailable(second.connectionId, 429, "Rate limit reached", "codex", model);
-    const exhausted = await getProviderCredentials("codex", new Set([first.connectionId, second.connectionId]), model, { requestControls });
+    const third = await getProviderCredentials("codex", new Set([first.connectionId, second.connectionId]), model, { requestControls });
+    expect(third.connectionId).toBe("max2");
+    await markAccountUnavailable(third.connectionId, 429, "Rate limit reached", "codex", model);
+    const exhausted = await getProviderCredentials("codex", new Set([first.connectionId, second.connectionId, third.connectionId]), model, { requestControls });
     expect(exhausted.allRateLimited).toBe(true);
     expect(requestControls).toEqual({ provider: "codex", model, tier: "ultrafast", effort: "max" });
   });
-  it("returns an explicit eligibility failure when only Pro accounts remain", async () => {
+  it.each(["default", "priority", "ultrafast"])("uses an account with old priority-only metadata at %s speed", async tier => {
     accounts = accounts.slice(0, 1);
-    expect(await getProviderCredentials("codex", null, model, { requestControls })).toEqual({ noEligibleControls: true });
+    expect((await getProviderCredentials("codex", null, model, { requestControls: { ...requestControls, tier } })).connectionId).toBe("pro");
   });
 });

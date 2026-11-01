@@ -1,4 +1,4 @@
-import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, SPEED_NAMES, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
+import { CONTROL_PROVIDERS, SPEEDS, CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, CAPABILITY_TTL_MS, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { getThinkingLevels } from "../providers/thinkingLevels.js";
 import { OPENAI_POOL_MODELS } from "../config/openaiPlatform.js";
 
@@ -95,43 +95,11 @@ export function controlLockKey(model, controls) {
 }
 
 export function connectionSupportsControls(connection, controls, now = Date.now()) {
-  if (!controls || !["codex", "openai"].includes(controls.provider)) return true;
+  // Studio Codex accounts share all speeds; only API model visibility is account-specific.
+  if (controls?.provider !== "openai") return true;
   const catalog = connection.providerSpecificData?.studioCapabilities;
   const caps = catalog?.models?.[controls.model];
-  if (controls.provider === "openai") {
-    return Boolean(caps && Number.isFinite(Date.parse(catalog.checkedAt))
-      && now - Date.parse(catalog.checkedAt) < CAPABILITY_TTL_MS
-      && (!controls.effort || caps.efforts?.includes(controls.effort)));
-  }
-  if (controls.tier && controls.tier !== "default") {
-    // Fail closed on missing/stale evidence; the selector refreshes first.
-    if (!caps || now - Date.parse(catalog.checkedAt) > CAPABILITY_TTL_MS || !Number.isFinite(Date.parse(catalog.checkedAt))) return false;
-    if (!caps.tiers?.includes(controls.tier)) return false;
-  }
-  return !controls.effort || !caps || caps.efforts?.includes(controls.effort);
-}
-
-export function expandControlModels(models, connections) {
-  const result = [...models];
-  const seen = new Set(models.map(m => m.id));
-  for (const entry of models) {
-    const [prefix, ...rest] = entry.id.split("/");
-    const provider = { cx: "codex", codex: "codex", cc: "claude", claude: "claude" }[prefix];
-    if (!provider) continue;
-    const model = rest.join("/");
-    if (model.includes("(") || model.includes("@") || model.includes("[")) continue;
-    const levels = effortLevels(provider, model);
-    if (!levels.length) continue;
-    for (const [speed, tier] of Object.entries({ standard: "default", fast: "priority", ultrafast: "ultrafast" })) {
-      if (provider === "claude" && tier !== "default" && (!CLAUDE_FAST_ENABLED || tier !== "priority" || !CLAUDE_FAST_MODELS.has(model))) continue;
-      if (provider === "codex" && tier !== "default" && !connections.some(c => c.provider === provider && connectionSupportsControls(c, { provider, model, tier }))) continue;
-      for (const effort of [null, ...levels]) {
-        const id = `${entry.id}@${speed}${effort ? `(${effort})` : ""}`;
-        if (seen.has(id)) continue;
-        seen.add(id);
-        result.push({ ...entry, id, name: `${entry.name || model} · ${SPEED_NAMES[tier]}${effort ? ` · ${effort}` : ""}`, studio_controls: { speed, effort, base_model: entry.id } });
-      }
-    }
-  }
-  return result;
+  return Boolean(caps && Number.isFinite(Date.parse(catalog.checkedAt))
+    && now - Date.parse(catalog.checkedAt) < CAPABILITY_TTL_MS
+    && (!controls.effort || caps.efforts?.includes(controls.effort)));
 }
