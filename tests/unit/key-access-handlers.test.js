@@ -219,7 +219,7 @@ describe("/v1/models routes filter by key", () => {
     expect(await list("sk-open")).toEqual([
       "cx/gpt-6.1-sol@standard", "cx/gpt-6.1-sol@fast", "cx/gpt-6.1-sol@ultrafast",
       "cx/gpt-6-astra@standard", "cx/gpt-6-astra@fast", "cx/gpt-6-astra@ultrafast",
-      "cc/claude-opus-5-5", "cc/claude-fable-5-1",
+      "cc/claude-opus-5-5", "cc/claude-fable-5-2", "cc/claude-fable-5-1",
     ]);
     expect(await list("sk-empty")).toEqual([]);
     fx.keys["sk-speed"] = { isActive: true, access: { restricted: true, allow: ["cx/gpt-6-astra@fast"] } };
