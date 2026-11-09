@@ -25,14 +25,16 @@ export const STUDIO_VISIBLE_MODELS = [
   { id: "cx/gpt-6-astra", provider: "codex", name: "GPT-6 Astra" },
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
   { id: "cc/claude-fable-5-2", provider: "claude", name: "Claude Fable 5.2" },
-  { id: "cc/claude-fable-5-1", provider: "claude", name: "Claude Fable 5.1" },
   ...STUDIO_KIMI_MODELS,
 ];
 // Speed-only picker variants: effort remains a native client control.
 export const STUDIO_CODEX_PICKER_SPEEDS = ["standard", "fast", "ultrafast"];
-export const STUDIO_MODEL_ALIASES = Object.fromEntries(
-  STUDIO_VISIBLE_MODELS.map(({ id }) => [id.slice(id.indexOf("/") + 1), id])
-);
+export const STUDIO_MODEL_ALIASES = {
+  "claude-fable-5-1": "cc/claude-fable-5-1",
+  ...Object.fromEntries(
+    STUDIO_VISIBLE_MODELS.map(({ id }) => [id.slice(id.indexOf("/") + 1), id])
+  ),
+};
 export const CLAUDE_EFFORTS = {
   "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"],
   "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],

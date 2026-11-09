@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 
 CODEX = ['gpt-6.1-sol', 'gpt-6-astra']
-CLAUDE = ['claude-opus-5-5', 'claude-fable-5-2', 'claude-fable-5-1']
+CLAUDE = ['claude-opus-5-5', 'claude-fable-5-2']
 SPEEDS = ['standard', 'fast', 'ultrafast']
 EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 KIMI = ['moonshot/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro-highspeed']
