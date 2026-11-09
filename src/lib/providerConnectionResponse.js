@@ -5,7 +5,9 @@ export function usesAwsCredentialForm(provider) {
 }
 
 export function toProviderConnectionResponse(connection) {
-  const { apiKey, accessToken, refreshToken, idToken, ...safe } = connection;
+  const { apiKey, accessToken, refreshToken, idToken, studioOpenaiAdmin, ...safe } = connection;
+  // The OpenAI billing admin key never leaves the server; expose only whether one is set.
+  if (studioOpenaiAdmin?.key) safe.studioOpenaiAdmin = { configured: true, keyHint: studioOpenaiAdmin.keyHint || null };
 
   if (!usesAwsCredentialForm(connection.provider) || !connection.providerSpecificData) {
     return safe;

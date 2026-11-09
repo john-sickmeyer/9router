@@ -102,6 +102,31 @@ levels; only Sol/Astra receive the verified three-speed picker. The pooled catal
 advertises a compatible 272K context, retaining the native CLI's full instructions
 and tools. Regenerate the native catalog for the installed CLI after upgrades.
 
+#### Grant balances (admin keys)
+
+Each OpenAI API connection is its own organization. In **Studio controls → OpenAI
+API grant balances**, add that organization's admin key (`sk-admin-…`) and the
+grants it received (amount, date, optional expiry). The key is verified with one
+read-only `GET /v1/organization/projects` and stored on that connection, separate
+from its inference key. It is sent only directly to `api.openai.com` with
+certificate verification enforced (no proxy pool, relay, or insecure-TLS retry),
+never used for inference, never carried in inference credentials, and never
+returned by any dashboard API; responses carry only a `sk-admin-…1234` hint. The
+check also reports whether that organization lists the connection's API key, and
+the dashboard warns if it does not or if the API key later changes. Note that the
+full database export in Settings includes it, as it already includes inference keys.
+
+OpenAI's admin API cannot read grant balances (`/v1/dashboard/billing/credit_grants`
+is browser-session only), so the balance is the entered grants minus
+`GET /v1/organization/costs` since UTC midnight of the earliest grant date (OpenAI
+reports costs in UTC days, so in US time zones this begins the evening before). That
+read is free, cached for 15 minutes, refreshed once per dashboard visit or with
+**Refresh balances**, and shown next to 9Router's own recorded cost for the same
+window. `/api/studio` returns only cached values, so release health checks never
+contact OpenAI. Balances are informational: routing still runs each account until
+OpenAI refuses it, and a positive balance never reopens a billing-blocked key.
+Covered by `studio-openai-admin-balance.test.js`.
+
 `studio-openai-pool.test.js` exercises actual handlers/executors with synthetic
 HTTP responses; `studio-provider-health.test.js` also checks persisted SQLite
 billing state. Both run in the hourly updater's required `test:studio` gate.

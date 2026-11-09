@@ -2,6 +2,7 @@ import { getProviderConnections, getOpenaiCreditBalance } from "@/lib/localDb";
 import { refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities";
 import { isOpenaiPoolEnabled, OPENAI_POOL_MODELS, OPENAI_CURRENT_EFFORTS, OPENAI_METADATA_REVIEWED_AT, OPENAI_METADATA_TTL_MS } from "open-sse/config/openaiPlatform.js";
 import { controlStatus } from "@/lib/studio/audit";
+import { getOpenaiAdminBalances } from "@/lib/studio/openaiAdminBalance.js";
 import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { STUDIO_KIMI_MODELS } from "open-sse/config/moonshot.js";
 
@@ -30,6 +31,10 @@ export async function GET() {
       speeds: ["standard", "fast", "ultrafast"], efforts: OPENAI_CURRENT_EFFORTS })) : [],
     openaiPool: {
       credit: await getOpenaiCreditBalance(),
+      // Cached admin-key balances for every OpenAI connection, including paused ones. No network here.
+      balances: await getOpenaiAdminBalances(allConnections),
+      allAccounts: allConnections.filter(c => c.provider === "openai").map(c => ({ id: c.id, name: c.name, isActive: c.isActive !== false,
+        billing: c.studioBillingState || null })),
       enabled: isOpenaiPoolEnabled(), priority: ["openai", "codex"],
       metadataReviewedAt: OPENAI_METADATA_REVIEWED_AT,
       metadataStale: Date.now() - Date.parse(OPENAI_METADATA_REVIEWED_AT) > OPENAI_METADATA_TTL_MS,

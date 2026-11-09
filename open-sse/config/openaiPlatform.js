@@ -2,6 +2,9 @@
 export const OPENAI_METADATA_REVIEWED_AT = "2026-10-30";
 export const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 export const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
+// Read-only organization admin API (costs, projects). Grants and balances are not exposed here.
+export const OPENAI_ADMIN_URL = "https://api.openai.com/v1/organization";
+export const OPENAI_BALANCE_TTL_MS = 15 * 60 * 1000;
 export const OPENAI_POOL_PROVIDER = "studio-openai";
 export const OPENAI_POOL_MODELS = ["gpt-6.1-sol", "gpt-6-astra"];
 export const OPENAI_CURRENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"];

@@ -242,8 +242,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       // Include current status for optimization check
       testStatus: connection.testStatus,
       lastError: connection.lastError,
-      // Pass full connection for clearAccountError to read modelLock_* keys
-      _connection: connection
+      // Pass full connection for clearAccountError to read modelLock_* keys.
+      // The OpenAI billing admin key is never needed for inference, so it is not carried.
+      _connection: (({ studioOpenaiAdmin, ...rest }) => rest)(connection)
     };
   } finally {
     if (resolveMutex) resolveMutex();

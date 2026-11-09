@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import StudioUpdateHealth from "@/shared/components/StudioUpdateHealth";
 import StudioOpenaiPool from "@/shared/components/StudioOpenaiPool";
+import StudioOpenaiBalances from "@/shared/components/StudioOpenaiBalances";
 
 export default function StudioControls() {
   const [data, setData] = useState(null);
@@ -42,6 +43,7 @@ export default function StudioControls() {
     <div><h1 className="text-2xl font-semibold">Studio controls</h1><p className="text-text-muted mt-2">Choose a speed and effort, then use the exact model name in your AI client. Account switching preserves both choices.</p></div>
     <StudioUpdateHealth details />
     <StudioOpenaiPool pool={data?.openaiPool} reload={load} />
+    <StudioOpenaiBalances pool={data?.openaiPool} reload={load} />
     <section className="border border-border rounded-xl p-5 space-y-4">
       <div className="grid md:grid-cols-3 gap-4">
         <label>Model<select className={selectClass} value={model} onChange={e => { const c = choices.find(x => x.id === e.target.value); setModel(c.id); setSpeed("standard"); setEffort(effort === "client" || c.efforts.includes(effort) ? effort : "high"); }}>{choices.map(c => <option key={c.id}>{c.id}</option>)}</select></label>
