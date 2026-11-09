@@ -5,7 +5,7 @@ import { getModelInfoCore } from "../../open-sse/services/model.js";
 
 const models = [
   "cx/gpt-6.1-sol", "cx/gpt-6-astra", "cx/gpt-6-sol", "cc/claude-opus-5-5",
-  "cc/claude-fable-5-1", "cc/claude-sonnet-5-5", "cc/claude-opus-5-5@fast(max)",
+  "cc/claude-fable-5-2", "cc/claude-fable-5-1", "cc/claude-sonnet-5-5", "cc/claude-opus-5-5@fast(max)",
   "cx/gpt-6-astra@ultrafast(max)", "free/example", "cx/gpt-6.1-sol",
 ].map(id => ({ id, context_length: 200000, max_completion_tokens: 32000, capabilities: { vision: true } }));
 
@@ -16,14 +16,14 @@ describe("Studio picker catalog", () => {
     expect(result.slice(-2).map(m => m.id)).toEqual(kimi.map(m => m.id));
     expect(result.at(-1).context_length).toBe(1048576);
     expect(Object.keys(result.at(-1).capabilities.effort)).toEqual(["supported", "low", "high", "max"]);
-    expect(studioModelCatalog([...models, ...kimi], { anthropic: true })).toHaveLength(2);
+    expect(studioModelCatalog([...models, ...kimi], { anthropic: true })).toHaveLength(3);
   });
-  it("advertises three speed choices for each Codex family and two Claude models", () => {
+  it("advertises three speed choices for each Codex family and three Claude models", () => {
     const catalog = studioModelCatalog(models);
     expect(catalog.map(m => m.id)).toEqual([
       "cx/gpt-6.1-sol@standard", "cx/gpt-6.1-sol@fast", "cx/gpt-6.1-sol@ultrafast",
       "cx/gpt-6-astra@standard", "cx/gpt-6-astra@fast", "cx/gpt-6-astra@ultrafast",
-      "cc/claude-opus-5-5", "cc/claude-fable-5-1",
+      "cc/claude-opus-5-5", "cc/claude-fable-5-2", "cc/claude-fable-5-1",
     ]);
     expect(catalog.slice(0, 3).map(m => m.name)).toEqual(["GPT-6.1 Sol", "GPT-6.1 Sol Fast", "GPT-6.1 Sol Ultrafast"]);
     for (const entry of catalog.slice(0, 6)) {
@@ -36,7 +36,7 @@ describe("Studio picker catalog", () => {
   });
   it("provides Anthropic effort capabilities to Happier and excludes other providers", () => {
     const catalog = studioModelCatalog(models, { anthropic: true });
-    expect(catalog).toHaveLength(2);
+    expect(catalog).toHaveLength(3);
     for (const model of catalog) {
       expect(model.id).toMatch(/^claude-/);
       expect(model.display_name).toMatch(/^Claude /);
@@ -59,6 +59,7 @@ describe("Studio picker catalog", () => {
     vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
     try {
       expect(await getModelInfoCore("claude-opus-5-5", {})).toEqual({ provider: "claude", model: "claude-opus-5-5" });
+      expect(await getModelInfoCore("claude-fable-5-2", {})).toEqual({ provider: "claude", model: "claude-fable-5-2" });
       expect(await getModelInfoCore("claude-fable-5-1", {})).toEqual({ provider: "claude", model: "claude-fable-5-1" });
       expect(await getModelInfoCore("claude-opus-5-5", { "claude-opus-5-5": "anthropic/claude-opus-5-5" })).toEqual({ provider: "anthropic", model: "claude-opus-5-5" });
       vi.stubEnv("STUDIO_CURATED_CATALOG", "0");

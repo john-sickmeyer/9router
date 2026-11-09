@@ -24,6 +24,7 @@ export const STUDIO_VISIBLE_MODELS = [
   { id: "cx/gpt-6.1-sol", provider: "codex", name: "GPT-6.1 Sol" },
   { id: "cx/gpt-6-astra", provider: "codex", name: "GPT-6 Astra" },
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
+  { id: "cc/claude-fable-5-2", provider: "claude", name: "Claude Fable 5.2" },
   { id: "cc/claude-fable-5-1", provider: "claude", name: "Claude Fable 5.1" },
   ...STUDIO_KIMI_MODELS,
 ];
@@ -36,6 +37,7 @@ export const CLAUDE_EFFORTS = {
   "claude-opus-5-5": ["low", "medium", "high", "xhigh", "max"],
   "claude-opus-5": ["low", "medium", "high", "xhigh", "max"],
   "claude-opus-4-8": ["low", "medium", "high", "xhigh", "max"],
+  "claude-fable-5-2": ["low", "medium", "high", "xhigh", "max"],
   "claude-fable-5-1": ["low", "medium", "high", "xhigh", "max"],
   "claude-fable-5": ["low", "medium", "high", "xhigh"],
   "claude-sonnet-5-5": ["low", "medium", "high", "xhigh", "max"],
