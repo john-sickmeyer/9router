@@ -8,9 +8,15 @@ import { translateRequest } from "../../open-sse/translator/index.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 import "../translator/registerAll.js";
 
+import { DefaultExecutor } from "../../open-sse/executors/default.js";
+
 const MODEL = "claude-fable-5-2";
 
 describe("Studio Claude Fable 5.2", () => {
+  it("uses a supported Claude Code version for gateway clients without native headers", () => {
+    const headers = new DefaultExecutor("claude").buildHeaders({ accessToken: "test" }, true, undefined, MODEL);
+    expect(headers["User-Agent"]).toBe("claude-cli/2.1.321 (external, sdk-cli)");
+  });
   it("registers the canonical model with its native capabilities and prices", () => {
     expect(getModelsByProviderId("claude")).toContainEqual({ id: MODEL, name: "Claude Fable 5.2" });
     expect(getCapabilitiesForModel("claude", MODEL)).toMatchObject({
