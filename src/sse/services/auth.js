@@ -6,6 +6,7 @@ import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLock
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
 import { codexQuotaLockUpdate, recoverCodexQuotaForSelection } from "./codexQuota.js";
+import { claudeQuotaLockUpdate, recoverClaudeQuotaForSelection } from "./claudeQuotaRecovery.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -40,6 +41,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
   if (resolveProviderId(provider) === "codex") {
     await recoverCodexQuotaForSelection(model, options.requestControls, excludeSet, requestedModel);
   }
+  if (resolveProviderId(provider) === "claude") await recoverClaudeQuotaForSelection(model, excludeSet);
   // Acquire mutex to prevent race conditions
   const currentMutex = selectionMutex;
   let resolveMutex;
@@ -141,14 +143,17 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       }
       const earliest = expiries.sort()[0] || null;
       if (earliest) {
-        const earliestConn = lockedConns[0];
-        log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | lastError=${earliestConn?.lastError?.slice(0, 50)}`);
+        const earliestConn = lockedConns.find(c => [getModelLockUntil(c, model), getModelLockUntil(c, lockKey)].includes(earliest));
+        const unavailableMessage = providerId === "claude"
+          ? "All Claude accounts are at a usage limit or in cooldown for this model."
+          : earliestConn?.lastError || null;
+        log.warn("AUTH", `${provider} | all ${connections.length} accounts locked for ${model || "all"} (${formatRetryAfter(earliest)}) | lastError=${unavailableMessage?.slice(0, 100)}`);
         return {
           allRateLimited: true,
           retryAfter: earliest,
           retryAfterHuman: formatRetryAfter(earliest),
-          lastError: earliestConn?.lastError || null,
-          lastErrorCode: earliestConn?.errorCode || null
+          lastError: unavailableMessage,
+          lastErrorCode: providerId === "claude" ? null : earliestConn?.errorCode || null
         };
       }
       log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);
@@ -261,7 +266,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
  * @param {string|null} model - The specific model that triggered the error
  * @returns {{ shouldFallback: boolean, cooldownMs: number }}
  */
-export async function markAccountUnavailable(connectionId, status, errorText, provider = null, model = null, resetsAtMs = null) {
+export async function markAccountUnavailable(connectionId, status, errorText, provider = null, model = null, resetsAtMs = null, quota = null) {
   if (!connectionId || connectionId === "noauth") return { shouldFallback: false, cooldownMs: 0 };
   const connections = await getProviderConnections({ provider });
   const conn = connections.find(c => c.id === connectionId);
@@ -293,6 +298,8 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
     ...lockUpdate,
     ...(resolveProviderId(provider) === "codex"
       ? codexQuotaLockUpdate(model, Object.values(lockUpdate)[0], status, reason) : {}),
+    ...(resolveProviderId(provider) === "claude"
+      ? claudeQuotaLockUpdate(model, Object.values(lockUpdate)[0], status, quota) : {}),
     testStatus: "unavailable",
     lastError: reason,
     errorCode: status,

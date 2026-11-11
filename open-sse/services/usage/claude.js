@@ -41,16 +41,20 @@ export async function getClaudeUsage(accessToken, proxyOptions = null, options =
   const stale = (!force && accessToken && usageCache.get(accessToken)?.result) || null;
 
   const promise = (async () => {
-    const result = await fetchClaudeUsageRaw(accessToken, proxyOptions);
+    const result = await fetchClaudeUsageRaw(accessToken, proxyOptions, options.signal);
     // Only cache real quota data, not soft-failure {message: ...} payloads
     if (accessToken && result?.quotas) {
-      usageCache.set(accessToken, {
+      if (usageCache.get(accessToken)?.promise === promise) usageCache.set(accessToken, {
         result,
         expiresAt: Date.now() + USAGE_CACHE_TTL_MS,
       });
       return result;
     }
     // Soft failure (429/error): prefer the last good read over a transient error
+    if (usageCache.get(accessToken)?.promise === promise) {
+      if (stale) usageCache.set(accessToken, { result: stale, expiresAt: 0 });
+      else usageCache.delete(accessToken);
+    }
     if (stale) return stale;
     return result;
   })();
@@ -59,18 +63,20 @@ export async function getClaudeUsage(accessToken, proxyOptions = null, options =
   return promise;
 }
 
-async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
+async function fetchClaudeUsageRaw(accessToken, proxyOptions = null, signal) {
   try {
+    signal?.throwIfAborted();
     // Skip OAuth usage call while this token is cooling down from a recent 429
     const cooldownUntil = oauthCooldown.get(accessToken);
     if (cooldownUntil && Date.now() < cooldownUntil) {
-      return await getClaudeUsageLegacy(accessToken, proxyOptions);
+      return await getClaudeUsageLegacy(accessToken, proxyOptions, signal);
     }
 
     // Primary: OAuth usage endpoint (Claude Code consumer OAuth tokens)
     // cedar_ember=1 adds the "limit reset" grant block (same flag Claude Code sends)
     const oauthResponse = await proxyAwareFetch(`${CLAUDE_CONFIG.oauthUsageUrl}?cedar_ember=1`, {
       method: "GET",
+      signal,
       headers: {
         "Authorization": `Bearer ${accessToken}`,
         "anthropic-beta": "oauth-2025-04-20",
@@ -85,7 +91,7 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
 
       // utilization = % USED (e.g. 87 means 87% used, 13% remaining)
       const hasUtilization = (window) =>
-        window && typeof window === "object" && typeof window.utilization === "number";
+        window && typeof window === "object" && Number.isFinite(window.utilization) && window.utilization >= 0;
 
       const createQuotaObject = (window) => {
         const used = window.utilization;
@@ -124,7 +130,7 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
         for (const limit of data.limits) {
           if (limit?.kind !== "weekly_scoped") continue;
           const modelName = String(limit?.scope?.model?.display_name || "").trim().toLowerCase();
-          if (!modelName || typeof limit.percent !== "number") continue;
+          if (!modelName || !Number.isFinite(limit.percent) || limit.percent < 0) continue;
           quotas[`weekly ${modelName} (7d)`] = createQuotaObject({
             utilization: Math.max(0, Math.min(100, limit.percent)),
             resets_at: limit.resets_at,
@@ -147,7 +153,7 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
 
     // Fallback: legacy settings + org usage endpoint
     console.warn(`[Claude Usage] OAuth endpoint returned ${oauthResponse.status}, falling back to legacy`);
-    return await getClaudeUsageLegacy(accessToken, proxyOptions);
+    return await getClaudeUsageLegacy(accessToken, proxyOptions, signal);
   } catch (error) {
     return { message: `Claude connected. Unable to fetch usage: ${error.message}` };
   }
@@ -220,10 +226,12 @@ export async function consumeClaudeResetGrant(accessToken, grantId, proxyOptions
 /**
  * Legacy Claude usage for API key / org admin users
  */
-async function getClaudeUsageLegacy(accessToken, proxyOptions = null) {
+async function getClaudeUsageLegacy(accessToken, proxyOptions = null, signal) {
   try {
+    signal?.throwIfAborted();
     const settingsResponse = await proxyAwareFetch(CLAUDE_CONFIG.settingsUrl, {
       method: "GET",
+      signal,
       headers: {
         "Authorization": `Bearer ${accessToken}`,
         "anthropic-version": CLAUDE_CONFIG.apiVersion,
@@ -238,6 +246,7 @@ async function getClaudeUsageLegacy(accessToken, proxyOptions = null) {
           CLAUDE_CONFIG.usageUrl.replace("{org_id}", settings.organization_id),
           {
             method: "GET",
+            signal,
             headers: {
               "Authorization": `Bearer ${accessToken}`,
               "anthropic-version": CLAUDE_CONFIG.apiVersion,

@@ -455,11 +455,13 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     let resetsAtMs = result.resetsAtMs;
     if (failureKind === "tier" || failureKind === "model") resetsAtMs = Date.now() + OPENAI_ELIGIBILITY_RECHECK_MS;
     let lockModel = controlLockKey(model, requestControls);
+    let claudeQuota = null;
     if (failureKind === "model") lockModel = model;
     if (provider === "openai" && [401, 403].includes(result.status)) lockModel = null;
     if (provider === "claude" && result.status === 429) {
       const quota = await checkClaudeQuota({ ...credentials, accessToken: refreshedCredentials.accessToken }, model);
       if (quota) {
+        claudeQuota = quota;
         resetsAtMs = Math.max(resetsAtMs || 0, quota.resetsAtMs);
         if (quota.accountWide) lockModel = null;
       }
@@ -476,7 +478,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     // Do not persist a modelLock_* for this path.
     const shouldFallback = provider === "antigravity" && quotaResetMs
       ? true
-      : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, lockModel, resetsAtMs)).shouldFallback;
+      : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, lockModel, resetsAtMs, claudeQuota)).shouldFallback;
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);

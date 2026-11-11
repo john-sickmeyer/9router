@@ -32,6 +32,7 @@ import {
 import { buildClineHeaders } from "@/shared/utils/clineAuth";
 import { hasWebIdentityProbe, fetchWebIdentity } from "open-sse/services/webIdentity.js";
 import { checkClaudeQuota } from "@/sse/services/claudeQuota.js";
+import { claudeQuotaLockUpdate } from "@/sse/services/claudeQuotaRecovery.js";
 import { getEarliestModelLockUntil, buildModelLockUpdate } from "open-sse/services/accountFallback.js";
 
 // OAuth provider test endpoints
@@ -1050,7 +1051,9 @@ export async function testSingleConnection(id) {
       providerSpecificData: { ...connection.providerSpecificData, ...effectiveProxy },
     });
     if (quota) {
-      Object.assign(updateData, buildModelLockUpdate(null, quota.resetsAtMs - Date.now()), {
+      const lockUpdate = buildModelLockUpdate(null, quota.resetsAtMs - Date.now());
+      Object.assign(updateData, lockUpdate, {
+        ...claudeQuotaLockUpdate(null, Object.values(lockUpdate)[0], 429, quota),
         testStatus: "unavailable",
         lastError: `Claude ${quota.name} usage limit reached. Resets ${new Date(quota.resetsAtMs).toISOString()}.`,
         lastErrorAt: new Date().toISOString(),

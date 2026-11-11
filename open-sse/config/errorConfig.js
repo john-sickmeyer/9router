@@ -46,6 +46,8 @@ export const QUOTA_LOOKUP_TIMEOUT_MS = 5000;
 
 // Match the existing five-minute usage refresh cadence; manual refresh bypasses it.
 export const CODEX_QUOTA_RECHECK_MS = 5 * 60 * 1000;
+export const CLAUDE_QUOTA_RECHECK_MS = 5 * 60 * 1000;
+export const CLAUDE_QUOTA_RESET_TOLERANCE_MS = 2000;
 
 // Cooldown durations (ms)
 const COOLDOWN = {
