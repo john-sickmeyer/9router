@@ -109,6 +109,14 @@ export async function observeControlResponse(response, controls, onEvent = async
         }
       } catch (error) {
         if (cancelled) return;
+        // The completion frame already contains the final output and usage.
+        // A later socket reset/abort is transport cleanup, not a failed model
+        // response. Explicit protocol violations still set failed via reject().
+        if (terminal && !failed) {
+          await reader.cancel().catch(() => {});
+          try { controller.close(); } catch { /* downstream already closed */ }
+          return;
+        }
         if (!failed) await onEvent({ state: "failed", reportedTier, reportedEffort, error: "Upstream stream interrupted" });
         await reader.cancel().catch(() => {});
         controller.error(error);

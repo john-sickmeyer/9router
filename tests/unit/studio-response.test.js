@@ -79,4 +79,43 @@ describe("Provider confirmation", () => {
     expect(cancel).toHaveBeenCalledOnce();
     expect(audit.mock.calls.map(([entry]) => entry.state)).toEqual(["completed"]);
   });
+  it.each(["ultrafast", "default"])("keeps completed output when the upstream socket resets after reporting %s", async tier => {
+    const audit = vi.fn();
+    let producer;
+    const upstream = new Response(new ReadableStream({
+      start(controller) {
+        producer = controller;
+        controller.enqueue(new TextEncoder().encode(done(tier)));
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
+    const res = await observeControlResponse(upstream, controls, audit);
+    const reader = res.body.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toContain("response.completed");
+    producer.error(new Error("socket reset after completion"));
+    await expect(reader.read()).resolves.toEqual({ done: true, value: undefined });
+    expect(audit.mock.calls.map(([entry]) => entry.state)).toEqual(["completed"]);
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ reportedTier: tier }));
+  });
+  it("still fails an upstream socket reset before completion", async () => {
+    const audit = vi.fn();
+    let producer;
+    const upstream = new Response(new ReadableStream({
+      start(controller) {
+        producer = controller;
+        controller.enqueue(new TextEncoder().encode(event("response.output_text.delta", { delta: "partial" })));
+      },
+    }), { headers: { "content-type": "text/event-stream" } });
+    const res = await observeControlResponse(upstream, controls, audit);
+    const reader = res.body.getReader();
+    expect((await reader.read()).done).toBe(false);
+    producer.error(new Error("socket reset before completion"));
+    await expect(reader.read()).rejects.toThrow("socket reset before completion");
+    expect(audit.mock.calls.map(([entry]) => entry.state)).toEqual(["failed"]);
+  });
+  it.each([done(), "data: invalid JSON\n\n"])("still rejects invalid protocol data after completion", async trailing => {
+    const audit = vi.fn();
+    const res = await observeControlResponse(stream(done() + trailing), controls, audit);
+    await expect(res.text()).rejects.toThrow();
+    expect(audit.mock.calls.map(([entry]) => entry.state)).toEqual(["completed", "failed"]);
+  });
 });

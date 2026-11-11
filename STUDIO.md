@@ -183,6 +183,8 @@ Codex's ChatGPT endpoint can return `service_tier: default` for accelerated requ
 
 The audit stores only request IDs, account IDs, model/control metadata, status, and timestamps at `~/.9router/studio-controls.jsonl` (0600, rotates at 5 MiB with one previous file). It excludes prompts, model output, tools, and credentials. Existing upstream request-history settings remain separate.
 
+Once a valid completion frame has been received, a subsequent upstream socket reset or abort closes the stream without replacing the completed audit with a failure. Resets before completion and explicit malformed or conflicting protocol frames still fail. The provider's reported tier remains unchanged, including `default` for an unconfirmed accelerated response.
+
 The fork does not add native Codex/Claude app features to Happier or make Happier's picker render a new control automatically. Refresh its model list or enter the custom alias. Client-level UI behavior needs a real client session check.
 
 ## Service layout
