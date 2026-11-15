@@ -1,3 +1,4 @@
+import { isLocalLlm, LOCAL_LLM_EFFORTS } from "../../config/localLlm.js";
 // Unified thinking normalization: extract client intent → apply provider-native format.
 // Config-driven: thinking format/limits come from capabilities.js + registry transport,
 // never hardcoded per-model here. See .docs/thinking/plan.md MATRIX VI-A.
@@ -117,6 +118,13 @@ export function captureThinking(body) {
 // Validate before translation can map an unsupported effort to a different one.
 export function validateThinkingIntent(provider, model, body) {
   const { cleanModel, override } = parseSuffix(model);
+  if (isLocalLlm(provider, cleanModel)) {
+    for (const cfg of [override, extractThinking(body)]) {
+      if (!cfg || cfg.mode === 'auto' || cfg.mode === 'none') continue;
+      if (cfg.mode !== 'level' || !LOCAL_LLM_EFFORTS.includes(cfg.level)) return `Local DeepSeek supports thinking: ${LOCAL_LLM_EFFORTS.join(', ')}`;
+    }
+    return null;
+  }
   if (provider !== "moonshot" || !MOONSHOT_K3_PATTERN.test(cleanModel)) return null;
   const intent = extractThinking(body);
   for (const cfg of [override, intent]) {

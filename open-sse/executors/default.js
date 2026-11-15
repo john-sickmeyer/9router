@@ -1,3 +1,4 @@
+import { normalizeLocalLlmRequest } from "../config/localLlm.js";
 import { BaseExecutor } from "./base.js";
 import { randomUUID } from "node:crypto";
 import { PROVIDERS, PROVIDER_OAUTH } from "../config/providers.js";
@@ -114,7 +115,7 @@ export class DefaultExecutor extends BaseExecutor {
       stripUnsupportedParams(this.provider, model, transformed);
     }
 
-    return injectReasoningContent({ provider: this.provider, model, body: transformed });
+    return normalizeLocalLlmRequest(this.provider, model, injectReasoningContent({ provider: this.provider, model, body: transformed }));
   }
 
   applyNousAttribution(model, body, stream, credentials) {

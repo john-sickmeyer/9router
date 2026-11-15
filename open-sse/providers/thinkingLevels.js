@@ -1,3 +1,4 @@
+import { isLocalLlm, LOCAL_LLM_EFFORTS } from "../config/localLlm.js";
 // Resolve valid thinking levels per model — drives UI level picker (suffix "model(level)").
 // Reuses capabilities.js (thinkingFormat/canDisable) so this file only maps format→levels (DRY).
 import { getCapabilitiesForModel } from "./capabilities.js";
@@ -112,6 +113,7 @@ const isOpenAICompatibleNode = (provider) => String(provider || "").startsWith("
 
 // Returns valid thinking levels for a model, or null when the model has no reasoning.
 export function getThinkingLevels(provider, model) {
+  if (isLocalLlm(provider, model)) return LOCAL_LLM_EFFORTS;
   if (provider === "kiro" && resolveKiroEffortPath(model) === null) return null;
   const caps = getCapabilitiesForModel(provider, model);
   if (!caps.reasoning) return null;

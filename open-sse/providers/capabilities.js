@@ -1,3 +1,4 @@
+import { isLocalLlm, LOCAL_LLM_CAPABILITIES } from "../config/localLlm.js";
 // Model capabilities — what each model can read/do beyond plain text.
 //
 // Fallback order (first match wins), result merged over DEFAULT_CAPABILITIES:
@@ -816,6 +817,7 @@ function isCommandCodeTextOnly(model) {
   return false;
 }
 export function getCapabilitiesForModel(provider, model) {
+  if (isLocalLlm(provider, model)) return { ...DEFAULT_CAPABILITIES, ...LOCAL_LLM_CAPABILITIES };
   if (!model) return { ...DEFAULT_CAPABILITIES };
 
   // Canonical exact lookup strips vendor prefix: "anthropic/claude-opus-4.7" -> "claude-opus-4.7".

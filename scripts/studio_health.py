@@ -37,6 +37,14 @@ def catalog_contract(content, anthropic=False, pooled=False, kimi=False):
     expected = (CLAUDE if anthropic else
         [f'{"" if pooled else "cx/"}{model}@{speed}' for model in CODEX for speed in SPEEDS] + [f'cc/{model}' for model in CLAUDE])
     if kimi and not anthropic: expected += KIMI
+    local = [model for model in models if model['id'] == 'local/deepseek-v4.1-flash-native']
+    if local and not anthropic:
+        if len(local) != 1 or local[0].get('context_length') != 65536:
+            raise RuntimeError('Local DeepSeek catalog metadata is invalid')
+        efforts = local[0].get('capabilities', {}).get('effort', {})
+        if not all(efforts.get(level, {}).get('supported') for level in ['none', 'low', 'high', 'max']):
+            raise RuntimeError('Local DeepSeek thinking metadata is incomplete')
+        expected += ['local/deepseek-v4.1-flash-native']
     if sorted(model['id'] for model in models) != sorted(expected):
         raise RuntimeError('Model catalog no longer matches the approved Studio choices')
     for model in models:

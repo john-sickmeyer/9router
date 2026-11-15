@@ -1,3 +1,4 @@
+import { LOCAL_LLM_ROUTE, LOCAL_LLM_CONTEXT, LOCAL_LLM_CAPABILITIES, LOCAL_LLM_EFFORTS } from "../config/localLlm.js";
 import { STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, SPEEDS, SPEED_NAMES } from "../config/studioControls.js";
 import { effortLevels } from "./studioControls.js";
 import { isOpenaiPoolEnabled, OPENAI_POOL_CONTEXT, OPENAI_POOL_PROVIDER } from "../config/openaiPlatform.js";
@@ -7,7 +8,7 @@ import { MOONSHOT_K3_EFFORTS, MOONSHOT_K3_CONTEXT } from "../config/moonshot.js"
 // independent, so the picker never grows into every speed/effort permutation.
 export function studioModelCatalog(models, { anthropic = false } = {}) {
   const available = new Map(models.map(model => [model.id, model]));
-  return STUDIO_VISIBLE_MODELS.flatMap(({ id, name, provider }) => {
+  const catalog = STUDIO_VISIBLE_MODELS.flatMap(({ id, name, provider }) => {
     if (anthropic && provider !== "claude") return [];
     const pooled = provider === "codex" && isOpenaiPoolEnabled();
     const base = id.slice(id.indexOf("/") + 1);
@@ -42,4 +43,9 @@ export function studioModelCatalog(models, { anthropic = false } = {}) {
     }
     return [entry];
   });
+  const local = available.get(LOCAL_LLM_ROUTE);
+  if (!anthropic && local) catalog.push({ ...local, name: 'Deepseek', display_name: 'Deepseek',
+    context_length: LOCAL_LLM_CONTEXT, capabilities: { ...LOCAL_LLM_CAPABILITIES,
+      effort: { supported: true, ...Object.fromEntries(LOCAL_LLM_EFFORTS.map(level => [level, { supported: true }])) } } });
+  return catalog;
 }
