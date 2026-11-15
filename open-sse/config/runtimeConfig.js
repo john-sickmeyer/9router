@@ -91,6 +91,10 @@ export const STALE_SOCKET_ERROR_CODES = new Set([
   "UND_ERR_HEADERS_TIMEOUT",
 ]);
 
+// Retry safe reads over IPv4 only when dual-family TCP connection attempts failed.
+export const IPV4_READ_RETRY_METHODS = new Set(["GET", "HEAD"]);
+export const IPV4_READ_RETRY_ERROR_CODES = new Set(["ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH"]);
+
 export const NON_STALE_SOCKET_ERROR_CODES = new Set([
   "ENOTFOUND",
   "EAI_AGAIN",

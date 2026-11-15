@@ -1,9 +1,12 @@
 import { Readable } from "stream";
+import { isIP } from "node:net";
 import {
   MEMORY_CONFIG,
   FRESH_RETRY_KEEPALIVE_TIMEOUT_MS,
   STALE_SOCKET_ERROR_CODES,
   NON_STALE_SOCKET_ERROR_CODES,
+  IPV4_READ_RETRY_METHODS,
+  IPV4_READ_RETRY_ERROR_CODES,
   STALE_SOCKET_ERROR_SUBSTRINGS,
   resolveKeepAliveTimeouts,
   isFreshSocketReplayEnabled,
@@ -280,13 +283,13 @@ function evictOldest(cacheMap) {
   }
 }
 
-async function getOrCreateDirectAgent(key, insecure, keepAliveTimeout, keepAliveMaxTimeout) {
+async function getOrCreateDirectAgent(key, insecure, keepAliveTimeout, keepAliveMaxTimeout, ipv4Only = false) {
   const cached = directDispatchers.get(key);
   if (cached) return cached;
   const { Agent } = await import("undici");
   evictOldest(directDispatchers);
   const agent = new Agent({
-    connect: buildConnectOptions(insecure),
+    connect: { ...buildConnectOptions(insecure), ...(ipv4Only ? { family: 4, autoSelectFamily: false } : {}) },
     keepAliveTimeout,
     keepAliveMaxTimeout,
   });
@@ -348,6 +351,24 @@ async function getDispatcher(proxyUrl, insecure = false, forceFreshSocket = fals
   return proxyDispatchers.get(key);
 }
 
+function isDualFamilyConnectFailure(error) {
+  const failures = error?.cause?.errors;
+  if (!Array.isArray(failures) || failures.length < 2) return false;
+  return failures.every(failure => failure?.syscall === "connect" && IPV4_READ_RETRY_ERROR_CODES.has(failure.code))
+    && failures.some(failure => isIP(failure.address || "") === 4 && failure.code === "ETIMEDOUT")
+    && failures.some(failure => isIP(failure.address || "") === 6 && failure.code !== "ETIMEDOUT");
+}
+
+async function getIpv4ReadRetryDispatcher() {
+  return getOrCreateDirectAgent(
+    "ipv4-read-retry::secure",
+    false,
+    FRESH_RETRY_KEEPALIVE_TIMEOUT_MS,
+    FRESH_RETRY_KEEPALIVE_TIMEOUT_MS,
+    true
+  );
+}
+
 function isBodyReplaySafe(body) {
   return !(body && typeof body.getReader === "function" && body.locked);
 }
@@ -369,6 +390,20 @@ async function fetchWithTlsFallback(url, options, proxyUrl, forceFreshSocket = f
       console.warn(`[ProxyFetch] TLS cert verification failed (${err.cause?.code || err.code}), retrying with insecure TLS: ${url}`);
       const insecureDispatcher = await getDispatcher(proxyUrl, true, forceFreshSocket);
       return await rawFetch(url, { ...options, dispatcher: insecureDispatcher });
+    }
+
+    // A short family-race timeout can cancel working IPv4 before an unreachable
+    // IPv6 attempt. Retry safe reads once without the family race, retaining TLS.
+    if (
+      !proxyUrl
+      && !options.directFetch
+      && !options.signal?.aborted
+      && options.body == null
+      && IPV4_READ_RETRY_METHODS.has((options.method || "GET").toUpperCase())
+      && isDualFamilyConnectFailure(err)
+    ) {
+      const dispatcher = await getIpv4ReadRetryDispatcher();
+      return await rawFetch(url, { ...options, dispatcher });
     }
 
     // Stale keep-alive recovery: a pooled socket died before returning headers. Replay
