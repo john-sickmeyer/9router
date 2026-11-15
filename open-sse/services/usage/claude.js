@@ -3,6 +3,7 @@
  */
 
 import { proxyAwareFetch } from "../../utils/proxyFetch.js";
+import { CLAUDE_USAGE_RATE_LIMIT_COOLDOWN_MS } from "../../config/runtimeConfig.js";
 import { ANTHROPIC_API_VERSION, CLAUDE_CLI_VERSION } from "../../providers/shared.js";
 import { U, parseResetTime } from "./shared.js";
 
@@ -20,8 +21,23 @@ const CLAUDE_CONFIG = {
 
 // OAuth usage endpoint rate-limits (429); cool down per-token to stop hammering it.
 // Only the quota endpoint is affected — chat with the same token still works.
-const OAUTH_429_COOLDOWN_MS = 180000;
 const oauthCooldown = new Map();
+
+function rateLimitedUsage(retryAt) {
+  const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60000));
+  return {
+    message: `Claude usage checks are rate-limited by Anthropic. Try again in about ${minutes} minute${minutes === 1 ? "" : "s"}.`,
+    retryAt: new Date(retryAt).toISOString(),
+  };
+}
+
+function rateLimitRetryAt(response) {
+  const value = response.headers.get("retry-after");
+  const now = Date.now();
+  const seconds = value?.trim() ? Number(value) : NaN;
+  const date = Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(value || "");
+  return Number.isFinite(date) && date > now ? date : now + CLAUDE_USAGE_RATE_LIMIT_COOLDOWN_MS;
+}
 
 // Dedup + short TTL cache per access token. Many tabs / many accounts / auto-refresh
 // all funnel through here; without this each call hits Anthropic and triggers 429.
@@ -69,7 +85,7 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null, signal) {
     // Skip OAuth usage call while this token is cooling down from a recent 429
     const cooldownUntil = oauthCooldown.get(accessToken);
     if (cooldownUntil && Date.now() < cooldownUntil) {
-      return await getClaudeUsageLegacy(accessToken, proxyOptions, signal);
+      return rateLimitedUsage(cooldownUntil);
     }
 
     // Primary: OAuth usage endpoint (Claude Code consumer OAuth tokens)
@@ -148,7 +164,14 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null, signal) {
 
     // Cool down OAuth usage polling after a 429 (quota endpoint only)
     if (oauthResponse.status === 429) {
-      oauthCooldown.set(accessToken, Date.now() + OAUTH_429_COOLDOWN_MS);
+      const retryAt = rateLimitRetryAt(oauthResponse);
+      oauthCooldown.set(accessToken, retryAt);
+      await oauthResponse.body?.cancel();
+      return rateLimitedUsage(retryAt);
+    }
+    if (oauthResponse.status === 401) {
+      await oauthResponse.body?.cancel();
+      return { message: "Claude authentication has expired. Refresh the connection and try again." };
     }
 
     // Fallback: legacy settings + org usage endpoint

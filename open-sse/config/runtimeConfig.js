@@ -92,6 +92,8 @@ export const STALE_SOCKET_ERROR_CODES = new Set([
 ]);
 
 // Retry safe reads over IPv4 only when dual-family TCP connection attempts failed.
+export const CLAUDE_USAGE_RATE_LIMIT_COOLDOWN_MS = 180000;
+
 export const IPV4_READ_RETRY_METHODS = new Set(["GET", "HEAD"]);
 export const IPV4_READ_RETRY_ERROR_CODES = new Set(["ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH"]);
 
