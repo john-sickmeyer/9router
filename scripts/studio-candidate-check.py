@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Boot a staged release with an empty temporary DB; never use account credentials."""
 import argparse
+import hashlib
 import json
 import os
 import pathlib
 import shutil
 import socket
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -48,6 +50,11 @@ def validate(build, revision, log_path):
                 transport = json.loads(content).get('transport', {})
                 checks['transport_tracking'] = transport == {'version': 1, 'activeCount': 0, 'pending': []}
                 checks['protected_status'] = call('/api/studio')[0] == 401
+                checks['protected_ultrafast_policy'] = call('/api/studio/ultrafast')[0] == 401 and call('/api/studio/ultrafast',payload={'action':'mode','mode':'observe'})[0] == 401
+                code, content = call('/api/studio/ultrafast', admin=True)
+                initial_speed = json.loads(content)
+                checks['ultrafast_enforcement_default'] = code == 200 and initial_speed.get('mode') == 'enforce' and initial_speed.get('rows') == [] and initial_speed.get('ping') == {'model':'gpt-6.2-sol','effort':'low','tier':'ultrafast'}
+                checks['ultrafast_mode_switch'] = all(json.loads(call('/api/studio/ultrafast',admin=True,payload={'action':'mode','mode':m})[1])['mode'] == m for m in ('observe','enforce'))
                 checks['protected_billing_recovery'] = call('/api/studio/openai-pool', payload={'action': 'retry-billing', 'connectionId': 'fixture'})[0] == 401
                 checks['protected_credit_balance'] = call('/api/studio/openai-pool')[0] == 401 and call('/api/studio/openai-pool', payload={'action': 'set-credit-balance', 'balanceUsd': 1, 'connectionIds': ['fixture']})[0] == 401
                 code, content = call('/api/studio/openai-pool', admin=True)
@@ -67,10 +74,38 @@ def validate(build, revision, log_path):
                     checks[label] = True
                 code, content = call('/dashboard/studio', admin=True)
                 checks['dashboard'] = code == 200 and b'Studio controls' in content
+                code, content = call('/dashboard/quota', admin=True)
+                checks['quota_tracker_page'] = code == 200 and b'Quota' in content
                 checks['stock_updater_blocked'] = call('/api/version/update', payload={}, admin=True)[0] == 409
                 code, content = call('/api/keys', payload={'name': 'isolated-candidate-test'}, admin=True)
                 if code != 201: raise RuntimeError('Cannot create temporary test key')
                 key = json.loads(content)['key']
+                with sqlite3.connect(data/'db'/'data.sqlite', timeout=10) as db:
+                    stamp = '2026-11-17T00:00:00Z'
+                    db.execute("""INSERT INTO providerConnections(id, provider, authType, name, isActive, data, createdAt, updatedAt)
+                        VALUES(?, 'codex','oauth','Suspended fixture',0,?,?,?)""",
+                        ('speed-test-only',json.dumps({'studioUltrafastAutoOff':'fixture-owner'}),stamp,stamp))
+                _, content = call('/api/studio', admin=True)
+                checks['speed_suspension_preserves_codex_catalog'] = any(c['id']=='cx/gpt-6.2-sol' for c in json.loads(content)['choices'])
+                code, content = call('/v1/responses',payload={'model':'cx/gpt-6.2-sol@ultrafast','input':'fixture'},
+                    headers={'Authorization':'Bearer '+key})
+                checks['suspended_pool_returns_capacity'] = code == 503 and b'speed-qualified' in content
+                with sqlite3.connect(data/'db'/'data.sqlite', timeout=10) as db:
+                    account = 'reserve-fixture'
+                    db.execute("""INSERT INTO providerConnections(id,provider,authType,name,isActive,data,createdAt,updatedAt)
+                        VALUES(?,'codex','oauth','Reserved fixture',1,?,?,?)""",
+                        (account,json.dumps({'providerSpecificData':{'workspaceId':account}}),stamp,stamp))
+                    now = int(time.time()*1000)
+                    reserve = {'owner':hashlib.sha256(account.encode()).hexdigest(),'session':{'remaining':1},
+                        'weekly':{'remaining':87},'observedAt':now,'verifiedAt':now,'usageAt':now}
+                    db.execute("INSERT INTO kv(scope,key,value) VALUES('studioCodexQuotaReserveV1',?,?)",(account,json.dumps(reserve)))
+                for speed in ('standard','fast','ultrafast'):
+                    code, content = call('/v1/responses',payload={'model':'cx/gpt-6.2-sol@'+speed,'input':'fixture'},
+                        headers={'Authorization':'Bearer '+key})
+                    checks['quota_reserve_blocks_'+speed] = code == 503 and b'1% ping reserve' in content
+                code, content = call('/api/studio/ultrafast',admin=True)
+                view=json.loads(content)['reserves'][account]
+                checks['reserved_account_can_ping'] = view['held'] and view['pingAllowed'] and not view['routable']
                 code, content = call('/v1/messages', payload={'model': 'cc/claude-opus-5-5@fast',
                     'messages': [{'role': 'user', 'content': 'probe'}], 'max_tokens': 1},
                     headers={'Authorization': 'Bearer ' + key})

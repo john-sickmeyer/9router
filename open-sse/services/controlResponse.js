@@ -1,17 +1,22 @@
 import { CONTROL_EVENTS as E, MAX_CONTROL_FRAME_BYTES, SPEEDS, CODEX_UNCONFIRMED_SPEED_WARNING } from "../config/studioControls.js";
+import { createUltrafastMeasurement } from "./ultrafastMeasurement.js";
 
 // Inspect only envelope metadata. Tool calls, output, and reasoning are never logged.
 // Keep sent controls distinct from provider confirmation. ChatGPT's Codex backend
 // can return default even when controlled measurements show acceleration.
-export async function observeControlResponse(response, controls, onEvent = async () => {}, billingContext) {
+export async function observeControlResponse(response, controls, onEvent = async () => {}, billingContext, speedSample = null) {
   if (!controls || !response.ok) return response;
   const codex = controls.provider === "codex";
   const openai = controls.provider === "openai";
   const responses = codex || openai;
   let chatFinished = false;
   const expected = controls.tier;
+  const measurement = responses && expected === "ultrafast" && speedSample ? createUltrafastMeasurement(speedSample.expectedText ?? null) : null;
+  const upstreamId = measurement && (response.headers.get("x-request-id") || response.headers.get("x-oai-request-id"));
   let reportedTier = null;
   let reportedEffort = null;
+  let reportedModel = null;
+  let earlyPending = false;
   let terminal = false;
   let failed = false;
   let cancelled = false;
@@ -31,13 +36,26 @@ export async function observeControlResponse(response, controls, onEvent = async
     }
     terminal = true;
     await onEvent({ state: "completed", reportedTier, reportedEffort, speedVerified: Boolean(expected && reportedTier === expected),
+      ...(measurement ? { delivery: { ...await measurement.finish(), reportedModel,
+        upstreamRequestId: typeof upstreamId === "string" && /^[a-zA-Z0-9_.-]{1,128}$/.test(upstreamId) ? upstreamId : null } } : {}),
       ...(unconfirmedCodexSpeed ? { warning: codex ? CODEX_UNCONFIRMED_SPEED_WARNING : "OpenAI reported Standard for an accelerated request; served speed is unconfirmed." } : {}) });
   };
-  const inspect = async (data, eventType) => {
+  const inspect = async (data, eventType, readAt) => {
     const type = data.type || eventType;
     if (eventType && data.type && eventType !== data.type) return reject("Conflicting upstream event types");
+    measurement?.observe(eventType && !data.type ? { ...data, type:eventType } : data, readAt);
+    if (measurement && !earlyPending && measurement.dueForLiveCheck()) {
+      earlyPending = true;
+      void measurement.finish(false).then(async delivery => {
+        if (Number.isFinite(delivery.tps) && !cancelled && !failed && !terminal) {
+          await onEvent({ state:delivery.classification === "slow" ? "ultrafast-live-slow" : "ultrafast-live-sample",
+            delivery:{ ...delivery, reportedModel, partial:true } });
+        }
+      }).catch(() => {}).finally(() => { earlyPending = false; });
+    }
     if ([E.error, E.failed, E.incomplete].includes(type)) return reject("Upstream response failed or was incomplete");
     const envelope = responses ? data.response || data : data.message || data;
+    if (measurement && typeof envelope.model === "string") reportedModel = envelope.model.slice(0,100);
     if (responses && ["failed", "incomplete"].includes(envelope.status)) return reject("Upstream response did not complete successfully");
     const speed = responses ? envelope.service_tier : envelope.usage?.speed || data.usage?.speed;
     if (openai && billingContext) {
@@ -64,7 +82,7 @@ export async function observeControlResponse(response, controls, onEvent = async
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   let buffer = "";
-  const frame = async (raw) => {
+  const frame = async (raw, readAt) => {
     const lines = raw.split(/\r?\n/);
     const data = lines.filter(l => l.startsWith("data:")).map(l => l.slice(5).trimStart()).join("\n");
     const event = lines.find(l => l.startsWith("event:"))?.slice(6).trim();
@@ -75,7 +93,7 @@ export async function observeControlResponse(response, controls, onEvent = async
       let parsed;
       try { parsed = JSON.parse(data); } catch { return reject("Invalid upstream SSE JSON"); }
       if (terminal) return reject("Upstream sent data after completion");
-      await inspect(parsed, event);
+      await inspect(parsed, event, readAt);
       // Recent Codex backends use response.done; existing translators expect completed.
       if (codex && (event === E.done || parsed.type === E.done)) {
         parsed.type = E.completed;
@@ -84,24 +102,27 @@ export async function observeControlResponse(response, controls, onEvent = async
     }
     return `${raw}\n\n`;
   };
+  let previousPullEnd;
   const stream = new ReadableStream({
     async pull(controller) {
+      if (measurement && previousPullEnd !== undefined) measurement.consumerPause(performance.now() - previousPullEnd);
       try {
         let emitted = false;
         while (!emitted) {
         const { done, value } = await reader.read();
+        const readAt = measurement ? performance.now() : null;
         buffer += decoder.decode(value, { stream: !done });
         let separator;
         while ((separator = /\r?\n\r?\n/.exec(buffer))) {
           const raw = buffer.slice(0, separator.index);
           buffer = buffer.slice(separator.index + separator[0].length);
           if (raw.length > MAX_CONTROL_FRAME_BYTES) await reject("Upstream SSE frame exceeds inspection limit");
-          controller.enqueue(encoder.encode(await frame(raw)));
+          controller.enqueue(encoder.encode(await frame(raw, readAt)));
           emitted = true;
         }
         if (buffer.length > MAX_CONTROL_FRAME_BYTES) await reject("Upstream SSE frame exceeds inspection limit");
         if (done) {
-          if (buffer.trim()) controller.enqueue(encoder.encode(await frame(buffer)));
+          if (buffer.trim()) controller.enqueue(encoder.encode(await frame(buffer, readAt)));
           if (!terminal) await reject("Upstream disconnected before completion");
           controller.close();
           return;
@@ -120,6 +141,8 @@ export async function observeControlResponse(response, controls, onEvent = async
         if (!failed) await onEvent({ state: "failed", reportedTier, reportedEffort, error: "Upstream stream interrupted" });
         await reader.cancel().catch(() => {});
         controller.error(error);
+      } finally {
+        if (measurement) previousPullEnd = performance.now();
       }
     },
     async cancel(reason) {

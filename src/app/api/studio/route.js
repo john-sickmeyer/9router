@@ -2,6 +2,7 @@ import { getProviderConnections, getOpenaiCreditBalance } from "@/lib/localDb";
 import { refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities";
 import { isOpenaiPoolEnabled, OPENAI_POOL_MODELS, OPENAI_CURRENT_EFFORTS, OPENAI_METADATA_REVIEWED_AT, OPENAI_METADATA_TTL_MS } from "open-sse/config/openaiPlatform.js";
 import { controlStatus } from "@/lib/studio/audit";
+import { ultrafastStatus } from "@/lib/studio/ultrafastHealth.js";
 import { getOpenaiAdminBalances } from "@/lib/studio/openaiAdminBalance.js";
 import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { STUDIO_KIMI_MODELS } from "open-sse/config/moonshot.js";
@@ -11,12 +12,15 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   const allConnections = await getProviderConnections();
   const connections = allConnections.filter(c => c.isActive !== false);
+  // A temporarily suspended pool still advertises the model. Admission
+  // returns retryable capacity and its worker keeps checking for recovery.
+  const configured = new Set(allConnections.filter(c => c.isActive !== false ||
+    (c.provider === "codex" && c.studioUltrafastAutoOff)).map(c => c.provider));
   const choices = [];
   for (const [provider, prefix, models] of [["codex", "cx", CODEX_EFFORTS], ["claude", "cc", CLAUDE_EFFORTS]]) {
+    if (!configured.has(provider)) continue;
     for (const [model, efforts] of Object.entries(models)) {
       if (isStudioCuratedCatalogEnabled() && !STUDIO_VISIBLE_MODELS.some(entry => entry.id === `${prefix}/${model}`)) continue;
-      const accounts = connections.filter(c => c.provider === provider);
-      if (!accounts.length) continue;
       const speeds = provider === "codex" ? [...STUDIO_CODEX_PICKER_SPEEDS] : ["standard"];
       if (provider === "claude" && CLAUDE_FAST_ENABLED && CLAUDE_FAST_MODELS.has(model)) speeds.push("fast");
       choices.push({ id: `${prefix}/${model}`, speeds, efforts });
@@ -24,6 +28,7 @@ export async function GET() {
   }
   return Response.json({
     release: process.env.STUDIO_RELEASE || "development",
+    ultrafastHealth: await ultrafastStatus(),
     choices,
     connectionIdentities: allConnections.map(c => ({ id: c.id, provider: c.provider })),
     kimiModels: connections.some(c => c.provider === "moonshot") ? STUDIO_KIMI_MODELS.map(m => m.id) : [],

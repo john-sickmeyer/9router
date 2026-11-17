@@ -4,6 +4,8 @@ import "open-sse/index.js";
 import { getSettings, getProviderConnections, updateProviderConnection } from "@/lib/localDb";
 import { getClaudeUsage } from "open-sse/services/usage/claude.js";
 import { getCodexUsage } from "open-sse/services/usage/codex.js";
+import { reserveEnabled, saveReserve } from "@/lib/studio/codexQuotaReserve.js";
+import { reserveDecision } from "open-sse/services/codexQuotaReserve.js";
 import { getExecutor } from "open-sse/executors/index.js";
 import { CLAUDE_CLI_SPOOF_HEADERS } from "open-sse/providers/shared.js";
 import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
@@ -215,7 +217,12 @@ async function pingConnection(conn, provider, providerConfig, handler, deps, sta
     return;
   }
 
-  const usage = await handler.getUsage(connection.accessToken, proxyOptions);
+  const observedAt = Date.now();
+  const usage = await handler.getUsage(connection.accessToken, proxyOptions, { providerSpecificData:connection.providerSpecificData });
+  if (provider === "codex" && reserveEnabled()) {
+    await saveReserve(connection, usage?.quotaReserve, "usage", observedAt);
+    if (!reserveDecision({ ...usage?.quotaReserve, verifiedAt:observedAt }).routable) return;
+  }
   const quotas = usage?.quotas || {};
   const quota = quotas?.[providerConfig.quotaKey];
   const resetAt = quota?.resetAt;

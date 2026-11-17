@@ -576,7 +576,7 @@ export function parseQuotaData(provider, data) {
             let displayName = quotaType;
             if (quotaType === "spark_session") displayName = "Spark (5h)";
             else if (quotaType === "spark_weekly") displayName = "Spark (Weekly)";
-            else if (quotaType === "session") displayName = "5h";
+            else if (quotaType === "session") displayName = quota.windowSeconds === 604800 ? "Weekly" : "5h";
             else if (quotaType === "weekly") displayName = "Weekly";
             else if (quotaType === "review_session") displayName = "Review (5h)";
             else if (quotaType === "review_weekly") displayName = "Review (Weekly)";

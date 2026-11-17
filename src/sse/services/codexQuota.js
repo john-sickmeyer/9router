@@ -31,6 +31,13 @@ function recoverableLocks(connection) {
   });
 }
 
+export function hasOnlyCodexUsageLocks(connection, model, controls) {
+  const keys = [model, controlLockKey(model, controls), "__all"].map(k => MODEL_LOCK_PREFIX + k);
+  const active = keys.filter(key => Date.parse(connection[key]) > Date.now());
+  const confirmed = new Set(recoverableLocks(connection));
+  return active.length > 0 && active.every(key => confirmed.has(key));
+}
+
 export async function reconcileCodexQuota(connection, usage) {
   const keys = recoverableLocks(connection).filter(key => {
     const model = key.slice(MODEL_LOCK_PREFIX.length).split("@")[0];

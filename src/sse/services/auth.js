@@ -5,8 +5,11 @@ import { resolveConnectionProxyConfig, pickProxyPoolId } from "@/lib/network/con
 import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLockUpdate, getEarliestModelLockUntil, getModelLockUntil } from "open-sse/services/accountFallback.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
-import { codexQuotaLockUpdate, recoverCodexQuotaForSelection } from "./codexQuota.js";
+import { codexQuotaLockUpdate, recoverCodexQuotaForSelection, hasOnlyCodexUsageLocks } from "./codexQuota.js";
 import { claudeQuotaLockUpdate, recoverClaudeQuotaForSelection } from "./claudeQuotaRecovery.js";
+import { monitorsUltrafast, filterUltrafastAccounts, hasSpeedSuspensions } from "@/lib/studio/ultrafastHealth.js";
+import { speedOwner } from "open-sse/services/ultrafastPolicy.js";
+import { reserveEnabled, prepareQuotaReserve, readQuotaDecisions, claimNearQuota } from "@/lib/studio/codexQuotaReserve.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -33,13 +36,20 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
   const excludeSet = excludeConnectionIds instanceof Set
     ? excludeConnectionIds
     : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
-  const preferredConnectionId = options?.preferredConnectionId || null;
+  const preferredConnectionId = options.ultrafastProbeConnectionId || options.preferredConnectionId || null;
   const requestedModel = options?.requestedModel || model;
   const lockKey = controlLockKey(model, options.requestControls);
   const isLocked = c => isModelLockActive(c, model) || isModelLockActive(c, lockKey);
   // Quota HTTP reads run outside the shared selection mutex.
   if (resolveProviderId(provider) === "codex") {
     await recoverCodexQuotaForSelection(model, options.requestControls, excludeSet, requestedModel);
+    if (reserveEnabled() && !options.ultrafastEnrollOnly) {
+      const candidates = options.ultrafastProbeConnectionId
+        ? [await getProviderConnectionById(options.ultrafastProbeConnectionId)].filter(c => c?.provider === "codex" &&
+          (c.isActive !== false || (options.ultrafastProbeOwner && c.studioUltrafastAutoOff === options.ultrafastProbeOwner)))
+        : await getProviderConnections({ provider:"codex", isActive:true });
+      await prepareQuotaReserve(candidates.filter(c => !excludeSet.has(c.id)));
+    }
   }
   if (resolveProviderId(provider) === "claude") await recoverClaudeQuotaForSelection(model, excludeSet);
   // Acquire mutex to prevent race conditions
@@ -81,14 +91,21 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       };
     }
 
-    const allConnections = await getProviderConnections({ provider: providerId, isActive: true });
+    let allConnections;
+    if (options.ultrafastProbeConnectionId) {
+      const exact = await getProviderConnectionById(options.ultrafastProbeConnectionId);
+      const owned = exact && options.ultrafastProbeOwner && exact.studioUltrafastAutoOff === options.ultrafastProbeOwner
+        && speedOwner(exact) === options.ultrafastProbeOwner;
+      allConnections = exact?.provider === providerId && (exact.isActive !== false || owned) ? [exact] : [];
+    } else allConnections = await getProviderConnections({ provider: providerId, isActive: true });
     const credit = providerId === "openai" ? await getOpenaiCreditBalance() : null;
     const creditExhausted = c => credit?.exhausted && credit.connectionIds.includes(c.id);
     const connections = allConnections.filter(c => connectionSupportsControls(c, options.requestControls));
-    if (allConnections.length && !connections.length && options.requestControls) return { noEligibleControls: true };
     log.debug("AUTH", `${provider} | total connections: ${connections.length}, excludeIds: ${excludeSet.size > 0 ? [...excludeSet].join(",") : "none"}, model: ${model || "any"}`);
 
     if (connections.length === 0) {
+      if (!options.ultrafastProbeConnectionId && monitorsUltrafast(options.requestControls) && await hasSpeedSuspensions(providerId)) return { ultrafastUnavailable:true };
+      if (allConnections.length && options.requestControls) return { noEligibleControls: true };
       log.warn("AUTH", `No credentials for ${provider}`);
       return null;
     }
@@ -98,10 +115,12 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     const antigravityQuotaCache = isAntigravity && model ? getAntigravityQuotaCache() : null;
 
     // Filter out model-locked, excluded, and Antigravity quota-exhausted connections.
-    const availableConnections = connections.filter(c => {
+    let availableConnections = connections.filter(c => {
+      if (options.ultrafastProbeConnectionId && (options.ultrafastProbeConnectionId !== c.id || c.studioBillingState?.status === "retry")) return false;
       if (billingUnavailable(c) || creditExhausted(c)) return false;
       if (excludeSet.has(c.id)) return false;
-      if (isLocked(c)) return false;
+      if (isLocked(c) && !(providerId === "codex" && options.ultrafastEnrollOnly &&
+          hasOnlyCodexUsageLocks(c, model, options.requestControls))) return false;
       const enabled = c.providerSpecificData?.enabledModels;
       if (providerId === "codex" && Array.isArray(enabled) && enabled.length && requestedModel && !enabled.includes(requestedModel)) return false;
       // Antigravity: skip if live quota exhausted for this model
@@ -117,6 +136,29 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
       return true;
     });
 
+    let reserve;
+    if (providerId === "codex" && reserveEnabled() && !options.ultrafastEnrollOnly && availableConnections.length) {
+      reserve = await readQuotaDecisions(availableConnections);
+      const held = availableConnections.some(c => reserve[c.id]?.held);
+      availableConnections = availableConnections.filter(c => options.ultrafastProbeConnectionId
+        ? reserve[c.id]?.pingAllowed : reserve[c.id]?.admissionAvailable);
+      if (!availableConnections.length) {
+        const retryAfter = new Date(Date.now() + 30_000).toISOString();
+        return { quotaReserveUnavailable:true, reserveHeld:held, allRateLimited:true, retryAfter,
+          retryAfterHuman:formatRetryAfter(retryAfter), lastErrorCode:503,
+          lastError:held ? "Codex capacity is held for the 1% ping reserve." : "Awaiting fresh Codex quota readings." };
+      }
+    }
+    if (!options.ultrafastProbeConnectionId && availableConnections.length && monitorsUltrafast(options.requestControls)) {
+      try {
+        availableConnections = await filterUltrafastAccounts(providerId, model, availableConnections);
+      } catch {
+        log.warn("AUTH", "Ultrafast qualification data is unavailable");
+        return { ultrafastUnavailable: true };
+      }
+      if (!availableConnections.length) return { ultrafastUnavailable: true };
+    }
+    if (options.ultrafastEnrollOnly) return null;
     log.debug("AUTH", `${provider} | available: ${availableConnections.length}/${connections.length}`);
     connections.forEach(c => {
       const excluded = excludeSet.has(c.id);
@@ -155,6 +197,9 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
           lastError: unavailableMessage,
           lastErrorCode: providerId === "claude" ? null : earliestConn?.errorCode || null
         };
+      }
+      if (!options.ultrafastProbeConnectionId && monitorsUltrafast(options.requestControls) && await hasSpeedSuspensions(providerId)) {
+        return { ultrafastUnavailable:true };
       }
       log.warn("AUTH", `${provider} | all ${connections.length} accounts unavailable`);
       return null;
@@ -221,6 +266,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
 
     await claimBillingRetry(connection);
     const resolvedProxy = await resolveConnectionProxyConfig(connection.providerSpecificData || {});
+    if (reserve && !options.ultrafastProbeConnectionId) claimNearQuota(connection, reserve[connection.id]);
 
     return {
       authType: connection.authType,
@@ -274,17 +320,18 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
 
   // GitHub premium-request exhaustion is account-wide until the next UTC month.
   const githubResetAtMs = githubMonthlyResetMs(status, errorText, provider);
+  const now = Date.now();
 
   // Provider-specific precise cooldown (e.g. codex usage_limit_reached resets_at) overrides backoff
   let shouldFallback, cooldownMs, newBackoffLevel;
   if (githubResetAtMs) {
     shouldFallback = true;
-    cooldownMs = githubResetAtMs - Date.now();
+    cooldownMs = githubResetAtMs - now;
     newBackoffLevel = 0;
-  } else if (Number.isFinite(resetsAtMs) && resetsAtMs > Date.now()) {
+  } else if (Number.isFinite(resetsAtMs) && resetsAtMs > now) {
     shouldFallback = true;
     // A provider's explicit retry/reset time can span a weekly usage window.
-    cooldownMs = resetsAtMs - Date.now();
+    cooldownMs = resetsAtMs - now;
     newBackoffLevel = 0;
   } else {
     ({ shouldFallback, cooldownMs, newBackoffLevel } = checkFallbackError(status, errorText, backoffLevel, resolveProviderId(provider)));
@@ -292,7 +339,7 @@ export async function markAccountUnavailable(connectionId, status, errorText, pr
   if (!shouldFallback) return { shouldFallback: false, cooldownMs: 0 };
 
   const reason = typeof errorText === "string" ? errorText.slice(0, 200) : "Provider error";
-  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs);
+  const lockUpdate = buildModelLockUpdate(githubResetAtMs ? null : model, cooldownMs, now);
 
   await updateProviderConnection(connectionId, {
     ...lockUpdate,

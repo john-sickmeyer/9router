@@ -8,6 +8,7 @@ import { getExecutor } from "open-sse/executors/index.js";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { USAGE_APIKEY_PROVIDERS } from "@/shared/constants/providers";
 import { reconcileCodexQuota } from "@/sse/services/codexQuota.js";
+import { saveReserve } from "@/lib/studio/codexQuotaReserve.js";
 import { reconcileClaudeQuota } from "@/sse/services/claudeQuotaRecovery.js";
 
 // Detect auth-expired messages returned by usage providers instead of throwing
@@ -182,6 +183,7 @@ export async function GET(request, { params }) {
     }
 
     // Fetch usage from provider API
+    const observedAt = Date.now();
     let usage = await getUsageForProvider(connection, proxyOptions, { force });
 
     // If provider returned an auth-expired message instead of throwing,
@@ -196,7 +198,10 @@ export async function GET(request, { params }) {
       }
     }
 
-    if (connection.provider === "codex") await reconcileCodexQuota(connection, usage);
+    if (connection.provider === "codex") {
+      await reconcileCodexQuota(connection, usage);
+      await saveReserve(connection, usage.quotaReserve, "usage", observedAt);
+    }
     if (connection.provider === "claude") await reconcileClaudeQuota(connection, usage);
     return Response.json(usage);
   } catch (error) {

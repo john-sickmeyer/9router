@@ -65,7 +65,7 @@ export function stripContinuityFields(body) {
   return body;
 }
 
-export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomVerifiedLossless, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides, requestControls, onControlEvent, clientSignal }) {
+export async function handleChatCore({ body, modelInfo, credentials, log, onCredentialsRefreshed, onRequestSuccess, onDisconnect, clientRawRequest, connectionId, userAgent, apiKey, ccFilterNaming, rtkEnabled, headroomEnabled, headroomUrl, headroomCompressUserMessages, headroomVerifiedLossless, headroomTimeoutMs, cavemanEnabled, cavemanLevel, ponytailEnabled, ponytailLevel, customPromptEnabled, customPrompt, pxpipeEnabled, pxpipeMinChars, pxpipeTimeoutMs, pxpipeTransform, onPxpipeEvent, sourceFormatOverride, providerThinking, providerOverrides, requestControls, onControlEvent, onProviderHeaders, clientSignal, ultrafastSample }) {
   const { provider, model } = modelInfo;
   const requestStartTime = Date.now();
   // Stable per-session color so all lines of one CLI conversation share a tag
@@ -423,6 +423,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       providerOverrides,
     });
     providerResponse = result.response;
+    try { await onProviderHeaders?.(providerResponse.headers); }
+    catch { log?.warn?.("QUOTA", "Could not record provider quota headers"); }
     providerUrl = result.url;
     providerHeaders = result.headers;
     finalBody = result.transformedBody;
@@ -496,6 +498,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
           });
           if (retryResult.response.ok) {
             providerResponse = retryResult.response;
+            try { await onProviderHeaders?.(providerResponse.headers); }
+            catch { log?.warn?.("QUOTA", "Could not record provider quota headers"); }
             finalBody = retryResult.transformedBody;
             await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null,
               ...turnStateReceipt(provider, retryResult) });
@@ -548,7 +552,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   const billingContext = provider === "openai" ? { serviceTier: finalBody?.service_tier || "default", serviceTierSource: "requested" } : undefined;
   try {
-    providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined, billingContext);
+    providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined, billingContext, ultrafastSample);
   } catch (error) {
     trackPendingRequest(model, provider, connectionId, false, true);
     return { ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message), fallbackSafe: false };

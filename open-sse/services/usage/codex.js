@@ -4,6 +4,7 @@
 
 import { proxyAwareFetch } from "../../utils/proxyFetch.js";
 import { U, parseResetTime, toFiniteNumber } from "./shared.js";
+import { reserveFromUsage } from "../codexQuotaReserve.js";
 
 // Codex (OpenAI) API config
 const CODEX_CONFIG = {
@@ -45,6 +46,7 @@ function formatCodexWindow(window) {
     used,
     total: 100,
     remaining: Math.max(0, 100 - used),
+    ...(Number(window?.limit_window_seconds) > 0 ? { windowSeconds:Number(window.limit_window_seconds) } : {}),
     resetAt: parseResetTime(window?.reset_at ?? window?.resets_at ?? window?.resetAt ?? null),
     unlimited: false,
   };
@@ -144,6 +146,7 @@ export async function getCodexUsage(accessToken, proxyOptions = null, options = 
 
     return {
       plan: data.plan_type || data.summary?.plan || "unknown",
+      quotaReserve: reserveFromUsage(getCodexRateLimitBody(normalRateLimit), data.credits),
       limitReached: getCodexRateLimitBody(normalRateLimit)?.limit_reached || false,
       reviewLimitReached: getCodexRateLimitBody(reviewRateLimit)?.limit_reached || false,
       sparkLimitReached: getCodexRateLimitBody(sparkRateLimit)?.limit_reached || false,

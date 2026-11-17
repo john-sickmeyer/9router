@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import ProviderIcon from "@/shared/components/ProviderIcon";
 import QuotaTable from "./QuotaTable";
+import CodexSpeedHealth, { useCodexSpeedHealth } from "./CodexSpeedHealth";
 import Toggle from "@/shared/components/Toggle";
 import Tooltip from "@/shared/components/Tooltip";
 import {
@@ -199,6 +200,7 @@ export default function ProviderLimits() {
     } catch { /* non-fatal: URL sync is best-effort */ }
   }, [pathname, router, searchParams]);
   const [providerOptions, setProviderOptions] = useState([]);
+  const speedHealth = useCodexSpeedHealth(providerFilter === "all" || providerFilter === "codex");
   const [accountFilter, setAccountFilter] = useState("all");
   const [quotaSortMode, setQuotaSortMode] = useState("default");
   const [quotaVisibility, setQuotaVisibility] = useState({});
@@ -1122,8 +1124,9 @@ export default function ProviderLimits() {
           const error = errors[conn.id];
 
           // Use table layout for all providers
-          const isInactive = conn.isActive === false;
           const isCodex = conn.provider === "codex";
+          const liveActive = (isCodex ? speedHealth?.byId?.[conn.id]?.connectionActive : undefined) ?? conn.isActive ?? true;
+          const isInactive = !liveActive;
           const claudeReset = conn.provider === "claude" ? quota?.raw?.resetCredits : null;
           const resetLabel = isCodex ? "Codex reset credit" : "Claude limit reset";
           const resetCreditCount = getCodexResetCreditCount(quota);
@@ -1337,14 +1340,14 @@ export default function ProviderLimits() {
                     <div
                       className="inline-flex items-center pl-0.5"
                       title={
-                        (conn.isActive ?? true)
+                        liveActive
                           ? "Disable connection"
                           : "Enable connection"
                       }
                     >
                       <Toggle
                         size="sm"
-                        checked={conn.isActive ?? true}
+                        checked={liveActive}
                         disabled={rowBusy}
                         onChange={(nextActive) =>
                           handleToggleConnectionActive(conn.id, nextActive)
@@ -1355,6 +1358,8 @@ export default function ProviderLimits() {
                 </div>
               </div>
 
+              {isCodex && <CodexSpeedHealth connection={conn} monitor={speedHealth} busy={rowBusy}
+                onKeepOff={()=>handleToggleConnectionActive(conn.id,false)} />}
               <div className="px-2 py-1.5">
                 {isLoading ? (
                   <div className="text-center py-5 text-text-muted">

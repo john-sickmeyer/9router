@@ -1,4 +1,5 @@
-import { getProviderConnections, updateProviderConnection } from "@/lib/localDb";
+import { getProviderConnections, getProviderConnectionById, updateProviderConnection } from "@/lib/localDb";
+import { speedOwner } from "open-sse/services/ultrafastPolicy.js";
 import { CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { OPENAI_MODELS_URL } from "open-sse/config/openaiPlatform.js";
 import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
@@ -8,8 +9,10 @@ import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 const key = Symbol.for("9router.studio.capabilities");
 const inFlight = globalThis[key] ||= new Map();
 
-export async function refreshOpenaiControlCapabilities({ force = false } = {}) {
-  const connections = await getProviderConnections({ provider: "openai", isActive: true });
+export async function refreshOpenaiControlCapabilities({ force = false, connectionId, monitorOwner } = {}) {
+  const connections = connectionId ? [await getProviderConnectionById(connectionId)].filter(c =>
+    c?.provider === "openai" && speedOwner(c) === monitorOwner && (c.isActive || c.studioUltrafastAutoOff === monitorOwner))
+    : await getProviderConnections({ provider: "openai", isActive: true });
   const results = [];
   for (const connection of connections) {
     const stamp = Date.parse(connection.providerSpecificData?.studioCapabilities?.checkedAt);

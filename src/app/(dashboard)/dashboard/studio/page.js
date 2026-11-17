@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import StudioUpdateHealth from "@/shared/components/StudioUpdateHealth";
+import StudioUltrafastHealth from "@/shared/components/StudioUltrafastHealth";
 import StudioOpenaiPool from "@/shared/components/StudioOpenaiPool";
 import StudioOpenaiBalances from "@/shared/components/StudioOpenaiBalances";
 
@@ -61,8 +62,9 @@ export default function StudioControls() {
       <p role="status">{message}</p>
       <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Account</th><th>Provider</th><th>Speed modes</th></tr></thead><tbody>{data?.accounts.map(a => <tr className="border-t border-border" key={a.id}><td className="p-2">{a.name}</td><td>{a.provider}</td><td>{a.provider === "claude" ? "Confirmed per response" : a.speeds.map(speed => speed[0].toUpperCase() + speed.slice(1)).join(" / ")}</td></tr>)}</tbody></table></div>
     </section>
+    <StudioUltrafastHealth health={data?.ultrafastHealth} accounts={accounts} />
     <section className="space-y-3"><h2 className="text-xl font-semibold">Recent request checks</h2><p className="text-sm text-text-muted">“Sent” is the final provider request. “Reported” is the provider response. An absent reported effort means the provider did not echo it. Prompts and credentials are excluded from this log.</p>
-      <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Time / request</th><th>Account / model</th><th>State</th><th>Sent speed / effort</th><th>Reported speed / effort</th></tr></thead><tbody>{[...(data?.recent || [])].reverse().slice(0, 40).map((r, i) => <tr className="border-t border-border" key={`${r.requestId}-${i}`}><td className="p-2">{new Date(r.time).toLocaleTimeString()}<br/><code>{r.requestId.slice(0, 8)}</code></td><td>{accounts.find(a => a.id === r.connectionId)?.name || r.connectionId?.slice(0, 8)}<br/>{r.provider} / {r.model}</td><td>{r.state}{r.fallbackReason && <p className="text-text-muted">{r.fallbackReason}</p>}{r.error && <p className="text-red-500">{r.error}</p>}{r.warning && <p className="text-amber-600" title={r.warning}>Served speed unconfirmed</p>}</td><td>{r.sentTier || "—"} / {r.sentEffort || "—"}</td><td>{r.reportedTier || "—"} / {r.reportedEffort || "—"}</td></tr>)}</tbody></table></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm text-left"><thead><tr><th className="p-2">Time / request</th><th>Account / model</th><th>State</th><th>Sent speed / effort</th><th>Reported speed / effort</th></tr></thead><tbody>{[...(data?.recent || [])].reverse().slice(0, 40).map((r, i) => <tr className="border-t border-border" key={`${r.requestId}-${i}`}><td className="p-2">{new Date(r.time).toLocaleTimeString()}<br/><code>{r.requestId.slice(0, 8)}</code></td><td>{accounts.find(a => a.id === r.connectionId)?.name || r.connectionId?.slice(0, 8)}<br/>{r.provider} / {r.model}</td><td>{r.state}{Number.isFinite(r.delivery?.tps) && <p>{r.delivery.tps.toFixed(1)} visible TPS</p>}{r.fallbackReason && <p className="text-text-muted">{r.fallbackReason}</p>}{r.error && <p className="text-red-500">{r.error}</p>}{r.warning && <p className="text-amber-600" title={r.warning}>Served speed unconfirmed</p>}</td><td>{r.sentTier || "—"} / {r.sentEffort || "—"}</td><td>{r.reportedTier || "—"} / {r.reportedEffort || "—"}</td></tr>)}</tbody></table></div>
     </section>
     <p className="text-sm text-text-muted">Release: {data?.release || "loading"}. Updates use the fork’s staged Git release process in STUDIO.md.</p>
   </main>;

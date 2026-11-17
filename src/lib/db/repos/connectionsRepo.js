@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from "uuid";
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { speedOwner, SPEED_HEALTH_SCOPE, speedHealthKey } from "open-sse/services/ultrafastPolicy.js";
+import { CODEX_RESERVE_SCOPE } from "open-sse/services/codexQuotaReserve.js";
 
 const OPTIONAL_FIELDS = [
   "displayName", "email", "globalPriority", "defaultModel",
@@ -127,6 +129,28 @@ export async function getProviderConnectionById(id) {
   return rowToConn(row);
 }
 
+// Called in the same transaction as the health transition. Recovery may only
+// reopen the exact connection and identity that this monitor closed.
+export function setUltrafastRoutingInTransaction(db, id, owner, active) {
+  const c = rowToConn(db.get("SELECT * FROM providerConnections WHERE id=?", [id]));
+  if (!c || !owner || speedOwner(c) !== owner || c.isActive === active) return false;
+  if (active && c.studioUltrafastAutoOff !== owner) return false;
+  if (active) delete c.studioUltrafastAutoOff;
+  else c.studioUltrafastAutoOff = owner;
+  c.isActive = active;
+  c.updatedAt = new Date().toISOString();
+  upsert(db,c);
+  return true;
+}
+
+function respectManualSwitch(db, existing, data, merged) {
+  if (!Object.hasOwn(data,"isActive") || !["codex","openai"].includes(existing.provider)) return;
+  if (existing.studioUltrafastAutoOff || existing.isActive !== data.isActive) {
+    db.run("DELETE FROM kv WHERE scope=? AND key=?", [SPEED_HEALTH_SCOPE,speedHealthKey(existing.provider,existing.id)]);
+  }
+  delete merged.studioUltrafastAutoOff;
+}
+
 // Internal sync reorder — must be called INSIDE a transaction.
 //
 // Normalizes priorities to a contiguous 1..N after a DELETE or an explicit
@@ -230,6 +254,7 @@ export async function createProviderConnection(data) {
       }
       const normalized = resetHealthStateOnActivation(existing, data);
       const merged = { ...existing, ...normalized, updatedAt: now };
+      respectManualSwitch(db, existing, data, merged);
       upsert(db, merged);
       result = merged;
       return;
@@ -292,6 +317,7 @@ export async function updateProviderConnection(id, data, { ifUnchanged = {} } = 
     }
     const normalized = resetHealthStateOnActivation(existing, data);
     const merged = { ...existing, ...normalized, updatedAt: new Date().toISOString() };
+    respectManualSwitch(db, existing, data, merged);
     upsert(db, merged);
     if (data.priority !== undefined) reorderInTx(db, existing.provider);
     result = merged;
@@ -306,6 +332,7 @@ export async function deleteProviderConnection(id) {
     const row = db.get(`SELECT provider FROM providerConnections WHERE id = ?`, [id]);
     if (!row) return;
     db.run(`DELETE FROM providerConnections WHERE id = ?`, [id]);
+    if (row.provider === "codex") db.run("DELETE FROM kv WHERE scope=? AND key=?", [CODEX_RESERVE_SCOPE,id]);
     reorderInTx(db, row.provider);
     ok = true;
   });
@@ -315,7 +342,10 @@ export async function deleteProviderConnection(id) {
 export async function deleteProviderConnectionsByProvider(providerId) {
   const db = await getAdapter();
   const before = db.get(`SELECT COUNT(*) AS n FROM providerConnections WHERE provider = ?`, [providerId]);
-  db.run(`DELETE FROM providerConnections WHERE provider = ?`, [providerId]);
+  db.transaction(() => {
+    db.run(`DELETE FROM providerConnections WHERE provider = ?`, [providerId]);
+    if (providerId === "codex") db.run("DELETE FROM kv WHERE scope=?", [CODEX_RESERVE_SCOPE]);
+  });
   return before?.n || 0;
 }
 

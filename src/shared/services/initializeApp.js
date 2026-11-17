@@ -106,6 +106,10 @@ async function runHeavyStartup() {
   }
 
   configureTunnelMonitoring(settings);
+  if (process.env.STUDIO_RELEASE && process.env.STUDIO_CURATED_CATALOG === "1") {
+    import("@/lib/studio/ultrafastHealth.js").then(({ startUltrafastMonitor }) => startUltrafastMonitor())
+      .catch(error => console.log("[Studio] Ultrafast scheduler start failed:", error.message));
+  }
 
   if (hasQuotaAutoPingEnabled(settings)) {
     import("@/shared/services/quotaAutoPing")

@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import * as transport from "../../open-sse/utils/proxyFetch.js";
+import * as speedHealth from "@/lib/studio/ultrafastHealth.js";
+import * as quotaReserve from "@/lib/studio/codexQuotaReserve.js";
 import { CODEX_TURN_STATE_HEADER } from "../../open-sse/config/studioControls.js";
 const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null, usage: null, realCodex: false }));
 vi.mock("../../open-sse/services/usage/claude.js", () => ({ getClaudeUsage: async () => fx.usage }));
@@ -124,6 +126,52 @@ describe("Codex turn-state through the Studio Responses route", () => {
     await call({ state: markerA });
     expect(await call({ state: markerA, path: "chat/completions" })).toBeNull();
     expect(sent.map(r => r.state)).toEqual(Array(7).fill(null));
+  });
+});
+describe("Ultrafast admission through the Studio route", () => {
+  afterEach(() => vi.restoreAllMocks());
+  it.each(["standard","fast","ultrafast"])("keeps the Codex quota reserve out of %s routing and lets a funded internal ping through",async speed=>{
+    vi.spyOn(quotaReserve,"reserveEnabled").mockReturnValue(true);
+    vi.spyOn(quotaReserve,"prepareQuotaReserve").mockResolvedValue();
+    const decisions={one:{admissionAvailable:false,held:true,pingAllowed:true},two:{admissionAvailable:true,held:false,pingAllowed:true}};
+    vi.spyOn(quotaReserve,"readQuotaDecisions").mockResolvedValue(decisions);
+    const route=()=>handleChat(new Request("http://local/v1/responses",{method:"POST",headers:{"content-type":"application/json"},
+      body:JSON.stringify({model:"cx/gpt-6.2-sol@"+speed,input:"OK",stream:true})}));
+    const good=await route();expect(good.status).toBe(200);await good.text();expect(fx.sent.map(r=>r.account)).toEqual(["two"]);
+    decisions.two={...decisions.one,pingAllowed:false};
+    const empty=await route();expect(empty.status).toBe(503);expect(empty.headers.get("retry-after")).toBe("30");
+    expect(empty.headers.get("x-9router-codex-quota")).toBe("reserved");expect(fx.sent).toHaveLength(1);
+    const { getProviderCredentials }=await import("@/sse/services/auth.js");
+    const select=id=>getProviderCredentials("codex",null,"gpt-6.2-sol",{ultrafastProbeConnectionId:id,
+      requestControls:{provider:"codex",model:"gpt-6.2-sol",tier:"ultrafast",effort:"low"}});
+    expect((await select("one")).connectionId).toBe("one");expect((await select("two")).quotaReserveUnavailable).toBe(true);
+  });
+  it("returns retryable speed capacity when every connection is switched off by the monitor",async ()=>{
+    fx.accounts=[];
+    vi.spyOn(speedHealth,"monitorsUltrafast").mockReturnValue(true);
+    vi.spyOn(speedHealth,"hasSpeedSuspensions").mockResolvedValue(true);
+    const response=await handleChat(new Request("http://local/v1/responses",{ method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({model:"cx/gpt-6.2-sol@ultrafast",input:"OK",stream:true}) }));
+    expect(response.status).toBe(503);expect(response.headers.get("retry-after")).toBe("15");expect(fx.sent).toEqual([]);
+  });
+  it("returns retryable 503 before any inference when no account qualifies, and still permits a Standard request", async () => {
+    vi.spyOn(speedHealth,"monitorsUltrafast").mockImplementation(c=>c?.tier === "ultrafast");
+    vi.spyOn(speedHealth,"filterUltrafastAccounts").mockResolvedValue([]);
+    const request = speed => new Request("http://local/v1/responses", { method:"POST", headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify({ model:"cx/gpt-6.2-sol@"+speed, input:"OK",stream:true }) });
+    const unavailable = await handleChat(request("ultrafast"));
+    expect(unavailable.status).toBe(503);expect(unavailable.headers.get("retry-after")).toBe("15");
+    expect(unavailable.headers.get("x-9router-ultrafast-health")).toBe("no-qualified-capacity");expect(fx.sent).toEqual([]);
+    const ordinary = await handleChat(request("standard"));expect(ordinary.status).toBe(200);await ordinary.text();expect(fx.sent).toHaveLength(1);
+  });
+  it("keeps recovery probes pinned to the one named eligible account even when the regular pool has alternatives", async () => {
+    vi.spyOn(speedHealth,"monitorsUltrafast").mockReturnValue(true);
+    vi.spyOn(speedHealth,"filterUltrafastAccounts").mockResolvedValue([]);
+    const { getProviderCredentials } = await import("@/sse/services/auth.js");
+    const select = id => getProviderCredentials("codex",null,"gpt-6.2-sol",{ ultrafastProbeConnectionId:id,
+      requestControls:{ provider:"codex",model:"gpt-6.2-sol",tier:"ultrafast",effort:"low" } });
+    expect((await select("two")).connectionId).toBe("two");
+    expect((await select("missing"))?.connectionId).toBeUndefined();
   });
 });
 describe("Studio client-to-provider pipeline", () => {

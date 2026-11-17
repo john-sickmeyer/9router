@@ -19,6 +19,7 @@ import { checkClaudeQuota } from "../services/claudeQuota.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
+import { finishNearQuota, observeQuotaHeaders } from "@/lib/studio/codexQuotaReserve.js";
 import { DEFAULT_HEADROOM_URL } from "@/lib/headroom/detect";
 import { getTransform as getPxpipeTransform } from "@/lib/pxpipe/loader.js";
 import { appendPxpipeEvent } from "@/lib/pxpipe/events.js";
@@ -31,6 +32,8 @@ import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
 import { detectFormatByEndpoint, FORMATS } from "open-sse/translator/formats.js";
 import { detectFormat } from "open-sse/services/provider.js";
 import { createCodexTurnRoute } from "open-sse/services/codexTurnState.js";
+import { monitorsUltrafast, recordLiveDelivery } from "@/lib/studio/ultrafastHealth.js";
+import { speedSessionId } from "@/lib/studio/speedTraffic.js";
 import { resolveSessionIdentity } from "open-sse/utils/sessionManager.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -300,6 +303,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
   if (requestControls) model = requestControls.model;
   if (provider === "openai") await refreshOpenaiControlCapabilities();
   const controlRequestId = poolOutcome?.requestId || crypto.randomUUID();
+  const sessionId = monitorsUltrafast(requestControls) ? speedSessionId(clientRawRequest?.headers, body) : null;
 
   // Routing shown in the unified "▶" line (client model → provider/model)
 
@@ -321,6 +325,16 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       requestedModel: requestedModel || model, requestControls, preferredConnectionId: turnRoute?.preferredConnectionId,
     });
 
+    if (credentials?.quotaReserveUnavailable) {
+      if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason = "codex-quota-reserve"; }
+      return errorResponse(503, credentials.lastError, {
+        "Retry-After":"30", "x-9router-codex-quota":credentials.reserveHeld ? "reserved" : "awaiting-quota" });
+    }
+    if (credentials?.ultrafastUnavailable) {
+      if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason = "ultrafast-speed-unavailable"; }
+      return errorResponse(503, `No recently speed-qualified Ultrafast account for ${provider}/${model}. Recovery probes are running. Retry shortly.`,
+        { "Retry-After": "15", "x-9router-ultrafast-health": "no-qualified-capacity" });
+    }
     if (credentials?.noEligibleControls) {
       if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason ||= "api-model-unavailable"; }
       return errorResponse(HTTP_STATUS.SERVICE_UNAVAILABLE, `No eligible account for ${provider}/${model} at ${requestControls?.tier || "standard"} speed and ${requestControls?.effort || "default"} effort. Refresh account capabilities in Studio controls.`);
@@ -366,10 +380,22 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       body: { ...structuredClone(body), model: `${provider}/${model}` },
       modelInfo: { provider, model },
       requestControls,
-      onControlEvent: requestControls ? (event) => {
-        if (["completed", "failed", "cancelled"].includes(event.state)) releaseBillingRetry(credentials.connectionId);
+      ultrafastSample: monitorsUltrafast(requestControls) ? {} : undefined,
+      onProviderHeaders: provider === "codex" ? headers => observeQuotaHeaders(credentials._connection, model, headers) : undefined,
+      onControlEvent: requestControls ? async (event) => {
+        if (["completed", "failed", "cancelled", "bypassed"].includes(event.state)) {
+          releaseBillingRetry(credentials.connectionId);
+          if (provider === "codex") finishNearQuota(credentials.connectionId);
+        }
+        if (event.delivery) {
+          // Diagnostic writes must not turn successfully streamed output into a client failure.
+          try { await recordLiveDelivery(credentials._connection, model, { ...event.delivery, requestId:controlRequestId,
+            ...(sessionId ? {sessionId} : {}), effort:requestControls.effort }); }
+          catch { log.warn("STUDIO", "Could not persist live Ultrafast evidence"); }
+        }
         return recordControl({
         requestId: controlRequestId, connectionId: credentials.connectionId,
+        ...(sessionId ? {sessionId} : {}),
         provider, model, requestedTier: requestControls.tier || "default",
         requestedEffort: requestControls.effort,
         ...(poolOutcome ? { routePolicy: "openai-api-first", fallbackReason: poolOutcome.fallbackReason } : {}), ...event,
