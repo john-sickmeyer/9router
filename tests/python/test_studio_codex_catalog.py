@@ -25,21 +25,27 @@ class CatalogTest(unittest.TestCase):
     def test_preserves_native_metadata_and_independent_effort(self):
         original = self.fixture()
         actual = module.build_catalog(original, CONFIG)["models"]
-        self.assertEqual(len(actual), 6)
-        self.assertEqual(len({entry["slug"] for entry in actual}), 6)
+        self.assertEqual(len(actual), 12)
+        self.assertEqual(len({entry["slug"] for entry in actual}), 12)
+        source_by = {entry["slug"]: entry for entry in original["models"]}
+        source_by.update({"gpt-6.2-sol": source_by["gpt-6.1-sol"], "gpt-6.2-astra": source_by["gpt-6-astra"]})
+        bases = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.2-astra"]
         for index, entry in enumerate(actual):
-            self.assertEqual(entry["slug"], original["models"][index // 3]["slug"] + "@" + ["standard", "fast", "ultrafast"][index % 3])
+            base = bases[index // 3]
+            source = source_by[base]
+            self.assertEqual(entry["slug"], base + "@" + ["standard", "fast", "ultrafast"][index % 3])
             for field in ["base_instructions", "context_window", "tool_mode", "supported_reasoning_levels"]:
-                self.assertEqual(entry[field], original["models"][index // 3][field])
+                self.assertEqual(entry[field], source[field])
             self.assertIsNone(entry["default_service_tier"])
             self.assertEqual(entry["service_tiers"], [])
         self.assertEqual(actual[2]["display_name"], "GPT-6.1 Sol Ultrafast")
+        self.assertEqual(actual[8]["display_name"], "GPT-6.2 Sol Ultrafast")
         actual[0]["supported_reasoning_levels"][0]["effort"] = "changed"
         self.assertEqual(actual[1]["supported_reasoning_levels"][0]["effort"], "low")
         self.assertEqual(original["models"][0]["supported_reasoning_levels"][0]["effort"], "low")
 
     def test_rejects_missing_model(self):
-        with self.assertRaisesRegex(ValueError, "both Studio models"):
+        with self.assertRaisesRegex(ValueError, "all Studio models"):
             module.build_catalog({"models": self.fixture()["models"][:1]}, CONFIG)
 
     def test_rejects_missing_effort_metadata(self):
@@ -59,8 +65,16 @@ class CatalogTest(unittest.TestCase):
                     contextlib.redirect_stdout(io.StringIO()):
                 module.main()
             actual = json.loads(destination.read_text())['models']
-        self.assertEqual(len(actual), 6)
-        self.assertEqual({m['slug'].split('@')[0] for m in actual}, {'gpt-6.1-sol', 'gpt-6-astra'})
+        self.assertEqual(len(actual), 12)
+        self.assertEqual({m['slug'].split('@')[0] for m in actual},
+                         {'gpt-6.1-sol', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra'})
+
+    def test_prefers_exact_new_metadata_when_upstream_adds_it(self):
+        catalog = self.fixture()
+        exact = dict(catalog['models'][0], slug='gpt-6.2-sol', base_instructions='GPT-6.2 native')
+        catalog['models'].append(exact)
+        actual = module.build_catalog(catalog, CONFIG)['models']
+        self.assertEqual(actual[6]['base_instructions'], 'GPT-6.2 native')
 
 
 if __name__ == "__main__":

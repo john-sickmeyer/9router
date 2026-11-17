@@ -4,7 +4,7 @@ import { resolveControls } from "../../open-sse/services/studioControls.js";
 import { getModelInfoCore } from "../../open-sse/services/model.js";
 
 const models = [
-  "cx/gpt-6.1-sol", "cx/gpt-6-astra", "cx/gpt-6-sol", "cc/claude-opus-5-5",
+  "cx/gpt-6.1-sol", "cx/gpt-6-astra", "cx/gpt-6.2-sol", "cx/gpt-6.2-astra", "cx/gpt-6-sol", "cc/claude-opus-5-5",
   "cc/claude-fable-5-2", "cc/claude-fable-5-1", "cc/claude-sonnet-5-5", "cc/claude-opus-5-5@fast(max)",
   "cx/gpt-6-astra@ultrafast(max)", "free/example", "cx/gpt-6.1-sol",
 ].map(id => ({ id, context_length: 200000, max_completion_tokens: 32000, capabilities: { vision: true } }));
@@ -23,10 +23,12 @@ describe("Studio picker catalog", () => {
     expect(catalog.map(m => m.id)).toEqual([
       "cx/gpt-6.1-sol@standard", "cx/gpt-6.1-sol@fast", "cx/gpt-6.1-sol@ultrafast",
       "cx/gpt-6-astra@standard", "cx/gpt-6-astra@fast", "cx/gpt-6-astra@ultrafast",
+      "cx/gpt-6.2-sol@standard", "cx/gpt-6.2-sol@fast", "cx/gpt-6.2-sol@ultrafast",
+      "cx/gpt-6.2-astra@standard", "cx/gpt-6.2-astra@fast", "cx/gpt-6.2-astra@ultrafast",
       "cc/claude-opus-5-5", "cc/claude-fable-5-2",
     ]);
     expect(catalog.slice(0, 3).map(m => m.name)).toEqual(["GPT-6.1 Sol", "GPT-6.1 Sol Fast", "GPT-6.1 Sol Ultrafast"]);
-    for (const entry of catalog.slice(0, 6)) {
+    for (const entry of catalog.slice(0, 12)) {
       expect(entry.studio_controls.effort).toBeNull();
       for (const effort of ["low", "high"]) {
         expect(resolveControls("codex", entry.id.slice(3), { reasoning: { effort } }))

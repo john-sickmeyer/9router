@@ -3,7 +3,7 @@
 import { STUDIO_KIMI_MODELS } from "./moonshot.js";
 export const STUDIO_CONTROL_VERSION = 1;
 export const CAPABILITY_TTL_MS = 6 * 60 * 60 * 1000;
-export const CODEX_CATALOG_VERSION = "0.163.0";
+export const CODEX_CATALOG_VERSION = "0.169.0";
 export const CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint";
 export const CODEX_UNCONFIRMED_SPEED_WARNING = "Codex did not confirm the served speed. Its ChatGPT endpoint can report default even when acceleration is observed; this is not proof of a downgrade or the billed tier.";
 export const CODEX_RUNTIME_ONLY_EFFORTS = new Set(["ultra"]);
@@ -13,6 +13,8 @@ export const SPEEDS = { standard: "default", default: "default", auto: "default"
 export const CODEX_EFFORTS = {
   "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.2-sol": ["low", "medium", "high", "xhigh", "max"],
+  "gpt-6.2-astra": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6-sol": ["low", "medium", "high", "xhigh", "max"],
   "gpt-6-luna": ["low", "medium", "high", "xhigh", "max"],
 };
@@ -23,6 +25,8 @@ export const isStudioCuratedCatalogEnabled = () => process.env.STUDIO_CURATED_CA
 export const STUDIO_VISIBLE_MODELS = [
   { id: "cx/gpt-6.1-sol", provider: "codex", name: "GPT-6.1 Sol" },
   { id: "cx/gpt-6-astra", provider: "codex", name: "GPT-6 Astra" },
+  { id: "cx/gpt-6.2-sol", provider: "codex", name: "GPT-6.2 Sol" },
+  { id: "cx/gpt-6.2-astra", provider: "codex", name: "GPT-6.2 Astra" },
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
   { id: "cc/claude-fable-5-2", provider: "claude", name: "Claude Fable 5.2" },
   ...STUDIO_KIMI_MODELS,

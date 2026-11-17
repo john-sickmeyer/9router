@@ -7,7 +7,7 @@ import time
 import urllib.error
 import urllib.request
 
-CODEX = ['gpt-6.1-sol', 'gpt-6-astra']
+CODEX = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra']
 CLAUDE = ['claude-opus-5-5', 'claude-fable-5-2']
 SPEEDS = ['standard', 'fast', 'ultrafast']
 EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']

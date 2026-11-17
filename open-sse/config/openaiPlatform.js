@@ -6,11 +6,13 @@ export const OPENAI_MODELS_URL = "https://api.openai.com/v1/models";
 export const OPENAI_ADMIN_URL = "https://api.openai.com/v1/organization";
 export const OPENAI_BALANCE_TTL_MS = 15 * 60 * 1000;
 export const OPENAI_POOL_PROVIDER = "studio-openai";
-export const OPENAI_POOL_MODELS = ["gpt-6.1-sol", "gpt-6-astra"];
+export const OPENAI_POOL_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.2-astra"];
 export const OPENAI_CURRENT_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 export const OPENAI_CURRENT_MODELS = [
   { id: "gpt-6.1-sol", name: "GPT-6.1 Sol", thinkingLevels: OPENAI_CURRENT_EFFORTS },
   { id: "gpt-6-astra", name: "GPT-6 Astra", thinkingLevels: OPENAI_CURRENT_EFFORTS },
+  { id: "gpt-6.2-sol", name: "GPT-6.2 Sol", thinkingLevels: OPENAI_CURRENT_EFFORTS },
+  { id: "gpt-6.2-astra", name: "GPT-6.2 Astra", thinkingLevels: OPENAI_CURRENT_EFFORTS },
   ...[["gpt-6.1-terra", "GPT-6.1 Terra"], ["gpt-6-luna", "GPT-6 Luna"], ["gpt-6-sol", "GPT-6 Sol"]]
     .map(([id, name]) => ({ id, name, thinkingLevels: ["none", ...OPENAI_CURRENT_EFFORTS] })),
 ];

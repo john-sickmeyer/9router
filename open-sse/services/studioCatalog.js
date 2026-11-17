@@ -4,7 +4,7 @@ import { effortLevels } from "./studioControls.js";
 import { isOpenaiPoolEnabled, OPENAI_POOL_CONTEXT, OPENAI_POOL_PROVIDER } from "../config/openaiPlatform.js";
 import { MOONSHOT_K3_EFFORTS, MOONSHOT_K3_CONTEXT } from "../config/moonshot.js";
 
-// Keep two model families, with explicit speed-only Codex choices. Effort stays
+// Keep the curated Codex families, with explicit speed-only choices. Effort stays
 // independent, so the picker never grows into every speed/effort permutation.
 export function studioModelCatalog(models, { anthropic = false } = {}) {
   const available = new Map(models.map(model => [model.id, model]));

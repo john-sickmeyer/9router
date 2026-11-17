@@ -17,6 +17,7 @@ Clients without separate speed controls can enter a custom model alias:
 ```
 cx/gpt-6-astra@ultrafast(max)
 cx/gpt-6.1-sol@fast(high)
+cx/gpt-6.2-sol@standard(max)
 cx/gpt-6-sol@standard(max)
 cc/claude-opus-5-5@standard(xhigh)
 ```
@@ -25,17 +26,17 @@ An alias without parentheses selects speed while leaving effort to the client's 
 
 **Ultra effort is not an API reasoning level.** It enables orchestration in a compatible Codex runtime, which [resolves it to the model's ordinary inference effort](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/openai_models/reasoning_effort.rs). Select that mode in the native client; 9Router cannot create the client-side orchestration merely by forwarding the word `ultra`. Raw Ultra effort and aliases such as `(ultra)` return an explanatory 400. For these router aliases, GPT-6 efforts are Low, Medium, High, Xhigh, and Max. **Ultrafast speed works independently of this distinction.**
 
-All Studio Codex OAuth accounts use the $500 Pro plan and support Standard, Fast and Ultrafast. The account capability split and its six-hour refresh gate have been removed. Old capability records no longer restrict account selection, and accelerated requests do not fetch per-account capability catalogs. Real quota, capacity, authentication and model locks still govern availability; account switching preserves the requested speed and effort. The same six speed aliases remain available in official Happier.
+All Studio Codex OAuth accounts use the $500 Pro plan and support Standard, Fast and Ultrafast. The account capability split and its six-hour refresh gate have been removed. Old capability records no longer restrict account selection, and accelerated requests do not fetch per-account capability catalogs. Real quota, capacity, authentication and model locks still govern availability; account switching preserves the requested speed and effort. The same twelve speed aliases remain available in official Happier.
 
 Claude Fast spends extra-usage credits immediately, so it is disabled by default. Native Fast fields and saved Fast aliases return a clear 400 before inference. The transport support remains available only for an operator who deliberately starts a worker with `STUDIO_CLAUDE_FAST_ENABLED=1`; ordinary Studio activation does not set that flag.
 
 ## Happier model discovery
 
-Studio activation sets `STUDIO_CURATED_CATALOG=1`. `/v1/models` advertises GPT-6.1 Sol and GPT-6 Astra in three speed variants each, plus Claude Opus 5.5 and Claude Fable 5.1. The Codex labels are the base name, the base name plus **Fast**, and the base name plus **Ultrafast**. Their IDs explicitly end in `@standard`, `@fast`, and `@ultrafast`. Each alias selects only speed; effort remains independent in Happier's Thinking selector. No effort permutations are advertised.
+Studio activation sets `STUDIO_CURATED_CATALOG=1`. `/v1/models` advertises GPT-6.1 Sol, GPT-6 Astra, GPT-6.2 Sol, and GPT-6.2 Astra in three speed variants each, plus Claude Opus 5.5 and Claude Fable 5.2. The Codex labels are the base name, the base name plus **Fast**, and the base name plus **Ultrafast**. Their IDs explicitly end in `@standard`, `@fast`, and `@ultrafast`. Each alias selects only speed; effort remains independent in Happier's Thinking selector. No effort permutations are advertised.
 
 Requests bearing `anthropic-version` receive only the two Claude models with Anthropic-compatible `display_name` and `capabilities.effort` metadata. API-key access restrictions still apply, including to individual speed aliases. This controls discovery, not routing: older sessions and explicit model aliases remain supported. Provider capacity and account switching are handled at request time; unavailable accelerated capacity never silently becomes Standard.
 
-Happier's Codex picker uses Codex `model/list`, not `/v1/models`. Generate a matching native catalog with `python3 scripts/studio-codex-catalog.py VERSION /absolute/path/models.json`, then reference it with `model_catalog_json` in the Codex configuration used by the Happier profile. The generator clones the matching release's full model instructions, tools, context and effort metadata for all six aliases. Only identity/display fields and the independent speed controls change: the alias owns speed, so a second speed toggle is not exposed. Set the isolated profile's default model to `gpt-6.1-sol@standard`. Regenerate after upgrading the Codex CLI, and refresh Happier's model list. Existing sessions may retain their original selection.
+Happier's Codex picker uses Codex `model/list`, not `/v1/models`. Generate a matching native catalog with `python3 scripts/studio-codex-catalog.py VERSION /absolute/path/models.json`, then reference it with `model_catalog_json` in the Codex configuration used by the Happier profile. The generator clones the matching release's full model instructions, tools, context and effort metadata for all twelve aliases. Until the upstream catalog adds GPT-6.2 rows, it clones the corresponding GPT-6.1 Sol and GPT-6 Astra metadata while preserving the GPT-6.2 IDs. Only identity/display fields and the independent speed controls change: the alias owns speed, so a second speed toggle is not exposed. Set the isolated profile's default model to `gpt-6.1-sol@standard`. Regenerate after upgrading the Codex CLI, and refresh Happier's model list. Existing sessions may retain their original selection.
 
 The picker also includes **Kimi K3.1 Pro** and **Kimi K3.1 Pro Highspeed** through
 the `moonshot/` API Platform connection. Kimi Thinking offers Low, High and Max;
@@ -98,7 +99,7 @@ refreshes on demand every six hours; failed reads retain last-known metadata but
 exclude stale accounts until refreshed. Reviewed model semantics are versioned
 separately from availability; the dashboard warns after 30 days without review.
 The current API catalog adds Sol, Astra, Terra and Luna with per-model reasoning
-levels; only Sol/Astra receive the verified three-speed picker. The pooled catalog
+levels; the four curated Sol/Astra families receive the three-speed picker. The pooled catalog
 advertises a compatible 272K context, retaining the native CLI's full instructions
 and tools. Regenerate the native catalog for the installed CLI after upgrades.
 

@@ -25,7 +25,7 @@ describe("Studio request controls", () => {
   ])("rejects conflicting or invalid controls", (body, alias) => {
     expect(() => resolveControls("codex", "gpt-6-astra", body, alias)).toThrow();
   });
-  it.each(["gpt-6-luna", "gpt-6-astra", "gpt-6.1-sol"])("explains native Ultra orchestration for %s instead of silently mapping effort", model => {
+  it.each(["gpt-6-luna", "gpt-6-astra", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6.2-astra"])("explains native Ultra orchestration for %s instead of silently mapping effort", model => {
     expect(() => resolveControls("codex", model, { reasoning_effort: "ultra" })).toThrow(/runtime orchestration mode/);
   });
   it("keeps explicit client effort over the provider default", () => {

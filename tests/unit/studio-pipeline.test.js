@@ -52,13 +52,13 @@ describe("Studio client-to-provider pipeline", () => {
     expect(fx.sent.map(row => row.account)).toEqual(["one", "two", "two"]);
     for (const { body } of fx.sent) expect(body.output_config.effort).toBe("high");
   });
-  it.each(["gpt-6.1-sol", "gpt-6-astra"].flatMap(model => ["standard", "fast", "ultrafast"].flatMap(speed => ["low", "high"].map(effort => ({ model, speed, effort })))))
+  it.each(["gpt-6.1-sol", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.2-astra"].flatMap(model => ["standard", "fast", "ultrafast"].flatMap(speed => ["low", "high"].map(effort => ({ model, speed, effort })))))
   ("routes the native picker alias $model@$speed with independent $effort effort", async ({ model, speed, effort }) => {
     fx.accounts[0].providerSpecificData = { studioCapabilities: { checkedAt: "2000-01-01T00:00:00Z",
       models: { [model]: { tiers: ["priority"], efforts: [] } } } };
     fx.failFirst = true;
     const response = await handleChat(new Request("http://localhost/v1/responses", {
-      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.162.1" },
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.169.0" },
       body: JSON.stringify({ model: `${model}@${speed}`, reasoning: { effort }, input: "Preserve this conversation", stream: false }),
     }));
     expect(response.status).toBe(200);
@@ -75,7 +75,7 @@ describe("Studio client-to-provider pipeline", () => {
   it("preserves useful output while clearly auditing ambiguous Codex default metadata", async () => {
     fx.reportedTier = "default";
     const response = await handleChat(new Request("http://localhost/v1/responses", {
-      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.163.0" },
+      method: "POST", headers: { "content-type": "application/json", "user-agent": "codex-cli/0.169.0" },
       body: JSON.stringify({ model: "cx/gpt-6-astra@ultrafast(max)", input: "hi", stream: false }),
     }));
     expect(response.status).toBe(200);
@@ -97,7 +97,7 @@ describe("Studio client-to-provider pipeline", () => {
     fx.failFirst = true;
     const body = { model: "cx/gpt-6-astra@ultrafast(max)", stream: false,
       ...(endpoint === "responses" ? { input: [{ role: "user", content: "Unique conversation context" }] } : { messages: [{ role: "user", content: "Unique conversation context" }] }) };
-    const response = await handleChat(new Request(`http://localhost/v1/${endpoint}`, { method: "POST", headers: { "content-type": "application/json", "user-agent": endpoint === "responses" ? "codex-cli/0.163.0" : "test-client" }, body: JSON.stringify(body) }));
+    const response = await handleChat(new Request(`http://localhost/v1/${endpoint}`, { method: "POST", headers: { "content-type": "application/json", "user-agent": endpoint === "responses" ? "codex-cli/0.169.0" : "test-client" }, body: JSON.stringify(body) }));
     expect(response.status).toBe(200);
     await response.text();
     expect(fx.sent.map(s => s.account)).toEqual(["one", "two"]);

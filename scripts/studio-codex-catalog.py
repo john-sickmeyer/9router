@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write two Codex model families with three speed choices from the official CLI catalog.
 
-Usage: studio-codex-catalog.py 0.162.1 /absolute/path/models.json
+Usage: studio-codex-catalog.py 0.169.0 /absolute/path/models.json
 Run again when upgrading the Studio's Codex CLI. Existing output is replaced
 only after both complete model entries have been found and validated.
 """
@@ -12,6 +12,14 @@ import re
 import sys
 import urllib.request
 
+# GPT-6.2 was released before the matching native Codex catalog landed. Keep
+# the catalog usable by cloning the same-family native metadata for these IDs;
+# an exact upstream entry automatically wins once a later CLI publishes one.
+CATALOG_FALLBACK_SOURCES = {
+    "gpt-6.2-sol": "gpt-6.1-sol",
+    "gpt-6.2-astra": "gpt-6-astra",
+}
+
 def build_catalog(catalog, config):
     # The central Studio config owns membership and speeds. Clone full native
     # metadata so aliases retain tools, instructions, context, and effort support.
@@ -21,11 +29,14 @@ def build_catalog(catalog, config):
         raise ValueError("Studio picker speeds are missing")
     speeds = json.loads(speed_match[1])
     available = {model["slug"]: model for model in catalog["models"]}
-    if len(models) != 2 or any(slug not in available for slug, _ in models):
-        raise ValueError("The matching Codex release does not contain both Studio models")
+    if not models:
+        raise ValueError("Studio Codex models are missing")
     selected = []
     for slug, name in models:
-        original = available[slug]
+        source_slug = slug if slug in available else CATALOG_FALLBACK_SOURCES.get(slug)
+        if source_slug not in available:
+            raise ValueError("The matching Codex release does not contain all Studio models")
+        original = available[source_slug]
         if not original.get("supported_reasoning_levels"):
             raise ValueError("Codex model metadata is incomplete")
         for speed in speeds:
@@ -46,7 +57,7 @@ def build_catalog(catalog, config):
 def main():
     version, destination = sys.argv[1:]
     if not re.fullmatch(r"\d+\.\d+\.\d+", version):
-        raise SystemExit("Expected a stable Codex CLI version such as 0.162.1")
+        raise SystemExit("Expected a stable Codex CLI version such as 0.169.0")
     path = pathlib.Path(destination)
     if not path.is_absolute():
         raise SystemExit("Destination must be absolute")

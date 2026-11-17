@@ -46,7 +46,7 @@ function account(id, provider = "openai") {
 }
 async function send(body = {}, model = "gpt-6.1-sol@standard") {
   return handleChat(new Request("http://localhost/v1/responses", { method: "POST",
-    headers: { "content-type": "application/json", "user-agent": "codex-cli/0.163.0", authorization: "Bearer fixture" },
+    headers: { "content-type": "application/json", "user-agent": "codex-cli/0.169.0", authorization: "Bearer fixture" },
     body: JSON.stringify({ model, input: "Synthetic check", stream: false, reasoning: { effort: "max" }, ...body }),
   }));
 }
@@ -246,9 +246,9 @@ describe("OpenAI stream envelopes", () => {
     expect(classifyOpenaiFailure(429, "slow_down", "insufficient_quota")).toBe("capacity");
     expect(classifyOpenaiFailure(429, null, "insufficient_quota")).toBe("billing");
   });
-  it("publishes the existing six picker aliases with compatible context", () => {
+  it("publishes all twelve picker aliases with compatible context", () => {
     const catalog = studioModelCatalog(OPENAI_POOL_MODELS.map(id => ({ id: `openai/${id}`, context_length: 1050000 })));
-    expect(catalog).toHaveLength(6);
+    expect(catalog).toHaveLength(12);
     expect(catalog.every(m => !m.id.includes("/") && m.context_length === 272000)).toBe(true);
   });
 });
