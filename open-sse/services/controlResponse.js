@@ -48,7 +48,7 @@ export async function observeControlResponse(response, controls, onEvent = async
       earlyPending = true;
       void measurement.finish(false).then(async delivery => {
         if (Number.isFinite(delivery.tps) && !cancelled && !failed && !terminal) {
-          await onEvent({ state:delivery.classification === "slow" ? "ultrafast-live-slow" : "ultrafast-live-sample",
+          await onEvent({ state:"ultrafast-live-sample",
             delivery:{ ...delivery, reportedModel, partial:true } });
         }
       }).catch(() => {}).finally(() => { earlyPending = false; });

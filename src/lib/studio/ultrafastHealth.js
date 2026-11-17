@@ -58,7 +58,7 @@ export async function filterUltrafastAccounts(provider, model, candidates, now =
   return admitted;
 }
 export async function recordLiveDelivery(connection, model, delivery) {
-  if (!delivery || !connection) return;
+  if (!delivery || delivery.partial || !connection) return;
   const key = keyFor(connection.provider, connection.id);
   const owner = speedOwner(connection);
   const db = await getAdapter();

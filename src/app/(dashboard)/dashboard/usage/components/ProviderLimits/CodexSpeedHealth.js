@@ -56,14 +56,14 @@ export default function CodexSpeedHealth({ connection, monitor, onKeepOff, busy 
     </div>
     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-text-muted">
       <span>Ping reserve <strong className="text-text-primary">1%</strong>{reserve?.held
-        ? (reserve.pingAllowed ? " · routing held, speed ping funded" : " · routing held, awaiting ping quota")
-        : reserve?.routable ? " · available for routing" : " · awaiting quota"}
+        ? (reserve.pingAllowed ? " · at cutoff, speed ping funded" : " · routing held, awaiting ping quota")
+        : reserve?.routable ? " · above cutoff" : " · awaiting quota"}
         {reserve?.session && ` · 5h ${reserve.session.remaining}% left`}{reserve?.weekly && ` · weekly ${reserve.weekly.remaining}% left`}</span>
       <span>Last measurable live response <strong className="text-text-primary">{tps(row?.lastLive?.tps)}</strong>{row?.lastLive && ` · ${row.lastLive.model} · ${time(row.lastLive.at)}`}</span>
       <span>Sol Light ping <strong className="text-text-primary">{tps(row?.lastProbe?.tps)}</strong>{row?.lastProbe && ` · ${time(row.lastProbe.at)}`}</span>
       {row?.lastProbe?.reason && <span>{row.lastProbe.reason}</span>}
       {row?.lastObservation?.reason && <span>Latest live response · {samplingReason[row.lastObservation.reason] || row.lastObservation.reason}</span>}
-      {row && (enabled || row.autoOff) && <span>{row.probing ? "Ping running" :
+      {row && (enabled || row.autoOff) && <span>{reserve?.held && !reserve.pingAllowed ? "Speed ping waits for quota" : row.probing ? "Ping running" :
         row.activeRequests?.length && row.nextProbe <= Date.now() ? "Ping due after live traffic" : "Next ping " + time(row.nextProbe)}</span>}
     </div>
     {row?.activeRequests?.map(request => <div key={request.requestId} className="mt-1" title={request.sessionId || request.requestId}>

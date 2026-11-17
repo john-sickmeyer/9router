@@ -83,6 +83,15 @@ describe("qualification and recovery", () => {
     row=applyProbeSpeed(row,fast,80+SPEED_TIMING.freshness+2);expect(row.status).toBe("checking");
     expect(ULTRAFAST_PING).toEqual({ model:"gpt-6.2-sol",effort:"low",tier:"ultrafast" });
   });
+  it("retains qualification when an 80.4 TPS mid-stream reading finishes at 248.6 TPS",()=>{
+    let row=applyProbeSpeed(applyProbeSpeed(newSpeedHealth("one","codex","owner",0),fast,10),fast,20);
+    const mid=applyLiveSpeed(row,"gpt-6.2-sol",{...slow,tps:80.4,partial:true},30);
+    expect(mid).toBe(row);
+    row=applyLiveSpeed(mid,"gpt-6.2-sol",{...fast,tps:248.6},40);
+    expect(row).toMatchObject({status:"qualified",lastLive:{tps:248.6}});
+    expect(speedQualified(row,40)).toBe(true);
+    expect(applyLiveSpeed(row,"gpt-6.2-sol",slow,50).status).toBe("checking");
+  });
 });
 
 describe("persistent account admission", () => {

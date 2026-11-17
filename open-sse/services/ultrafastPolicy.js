@@ -65,7 +65,7 @@ function applyEvidence(next, sample, at) {
 }
 
 export function applyLiveSpeed(row, model, delivery, now) {
-  if (!delivery) return row;
+  if (!delivery || delivery.partial) return row;
   const at = delivery.sampledAt ?? now;
   const observation = { ...delivery, at, model };
   const next = { ...row };
