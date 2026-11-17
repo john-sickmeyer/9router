@@ -38,11 +38,34 @@ const samplingReason = {
 };
 
 export default function CodexSpeedHealth({ connection, monitor, onKeepOff, busy }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [queuedAt, setQueuedAt] = useState(null);
+  const [error, setError] = useState(null);
+  async function testNow() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const response = await fetch("/api/studio/ultrafast", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "test-now", connectionId: connection.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not queue test.");
+      const accepted = data.rows.find(item => item.connectionId === connection.id);
+      setQueuedAt(accepted?.lastProbe?.at ?? 0);
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
   if (!monitor || (!monitor.enabled && !monitor.unavailable)) return null;
   if (monitor.unavailable) return <p className="px-3 py-2 text-xs text-text-muted">Ultrafast status unavailable</p>;
   const row = monitor.byId[connection.id];
   const reserve = monitor.reserves?.[connection.id];
   const enabled = row?.connectionActive ?? connection.isActive !== false;
+  const pending = row?.manualQueued || (queuedAt !== null && (row?.lastProbe?.at ?? 0) <= queuedAt);
   const observe = monitor.mode === "observe";
   const on = enabled && reserve?.routable && (observe || row?.eligible);
   const label = !enabled && !row?.autoOff ? "Manually off" : row?.autoOff ? "Auto-off" : on ? "On" : "Off";
@@ -52,8 +75,14 @@ export default function CodexSpeedHealth({ connection, monitor, onKeepOff, busy 
   return <div className="border-b border-black/10 px-3 py-2 text-xs dark:border-white/10" aria-label="Ultrafast routing and delivery">
     <div className="flex flex-wrap items-center justify-between gap-2">
       <span><span className="font-medium">Ultrafast routing {label}</span>{reason && <span className="text-text-muted"> · {reason}</span>}</span>
+      {(enabled || row?.autoOff) && <button type="button"
+        disabled={busy || submitting || pending || row?.probing || (reserve?.held && !reserve.pingAllowed)}
+        onClick={testNow} className="text-primary underline disabled:opacity-50">
+        {row?.probing ? "Testing TPS…" : submitting || pending ? "TPS test queued" : "Test TPS now"}
+      </button>}
       {row?.autoOff && !enabled && <button type="button" disabled={busy} onClick={onKeepOff} className="text-primary underline">Keep off manually</button>}
     </div>
+    {error && <p role="status" className="mt-1 text-red-500">{error}</p>}
     <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-text-muted">
       <span>Ping reserve <strong className="text-text-primary">1%</strong>{reserve?.held
         ? (reserve.pingAllowed ? " · at cutoff, speed ping funded" : " · routing held, awaiting ping quota")

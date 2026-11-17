@@ -115,6 +115,18 @@ describe("persistent account admission", () => {
   });
   afterEach(()=>{clearInterval(globalThis[singleton].timer);globalThis[singleton].timer=null;globalThis[singleton].nextInventory=0;
     globalThis[Symbol.for("9router.studio.speedTraffic")].clear();db.close();vi.unstubAllEnvs();vi.useRealTimers();});
+  it("expedites an existing speed test and coalesces duplicate requests", async () => {
+    fx.probes.push(fast, fast, fast);
+    await health.filterUltrafastAccounts("codex", "gpt-6.2-sol", fx.accounts);
+    await advance(14000);
+    expect(fx.calls).toHaveLength(2);
+    expect(await health.requestCodexSpeedTest("one")).toBeNull();
+    expect(await health.requestCodexSpeedTest("one")).toBeNull();
+    expect((await health.ultrafastStatus()).rows[0].manualQueued).toBe(true);
+    await advance(12000);
+    expect(fx.calls).toHaveLength(3);
+    expect((await health.ultrafastStatus()).rows[0].manualQueued).toBe(false);
+  });
   it("uses one account ping across models, admits only confirmed accounts, and resumes after two fast recovery pings", async ()=>{
     const select=model=>health.filterUltrafastAccounts("codex",model,fx.accounts);
     expect(await select("gpt-6.2-astra")).toEqual([]);

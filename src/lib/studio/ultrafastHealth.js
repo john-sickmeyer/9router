@@ -90,6 +90,29 @@ function enrollNewConnections(now) {
     .catch(() => console.error("[Studio] Ultrafast connection inventory unavailable"))
     .finally(() => { runtime.enrolling = null; });
 }
+export async function requestCodexSpeedTest(connectionId) {
+  const connection = await getProviderConnectionById(connectionId);
+  if (connection?.provider !== "codex") return "Codex connection not found.";
+  const owner = speedOwner(connection);
+  if (!owner || (connection.isActive === false && connection.studioUltrafastAutoOff !== owner)) {
+    return "This connection is manually disabled or needs authorization.";
+  }
+  const reserve = (await readQuotaDecisions([connection]))[connectionId];
+  if (reserve?.held && !reserve.pingAllowed) return "This account needs quota or funded credits to test.";
+  const db = await getAdapter();
+  const now = Date.now();
+  const key = keyFor("codex", connectionId);
+  db.transaction(() => {
+    const existing = get(db, key);
+    const row = existing?.owner === owner ? existing : newSpeedHealth(connectionId, "codex", owner, now);
+    if (row.manualQueued || row.lease?.until > now) return;
+    put(db, key, { ...row, manualQueued: true,
+      nextProbe: Math.min(row.nextProbe, Math.max(now, (row.lastProbe?.at || 0) + SPEED_TIMING.confirm)) });
+  });
+  startUltrafastMonitor();
+  return null;
+}
+
 async function tick() {
   const db = await getAdapter();
   const now = Date.now();
@@ -104,7 +127,7 @@ async function tick() {
     return !traffic.requests.length && traffic.quietUntil <= now;
   });
   const rank = r => (serving.has(group(r)) ? 4 : 0) + (r.fastStreak === 1 || r.slowStreak === 1 ? 0 : 1);
-  due.sort((a,b) => rank(a) - rank(b) || a.nextProbe - b.nextProbe || a.key.localeCompare(b.key));
+  due.sort((a,b) => Number(Boolean(b.manualQueued)) - Number(Boolean(a.manualQueued)) || rank(a) - rank(b) || a.nextProbe - b.nextProbe || a.key.localeCompare(b.key));
   const selected = due[0];
   if (!selected) return;
   const connection = await getProviderConnectionById(selected.connectionId);
@@ -142,7 +165,7 @@ async function tick() {
         put(db,selected.key,{ ...row, lease:null }); return;
       }
       previous = row.status;
-      const next = applyProbeSpeed(row, sample, Date.now()); status = next.status;
+      const next = applyProbeSpeed({ ...row, manualQueued: false }, sample, Date.now()); status = next.status;
       if (readMode(db) === "enforce") routingSwitch = applyRoutingSwitch(db, next);
       put(db,selected.key,next);
     });
