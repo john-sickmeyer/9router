@@ -5,6 +5,7 @@ export const STUDIO_CONTROL_VERSION = 1;
 export const CAPABILITY_TTL_MS = 6 * 60 * 60 * 1000;
 export const CODEX_CATALOG_VERSION = "0.169.0";
 export const CODEX_ROUTING_HINT_HEADER = "x-codex-routing-hint";
+export const CODEX_TURN_STATE_HEADER = "x-codex-turn-state";
 export const CODEX_UNCONFIRMED_SPEED_WARNING = "Codex did not confirm the served speed. Its ChatGPT endpoint can report default even when acceleration is observed; this is not proof of a downgrade or the billed tier.";
 export const CODEX_RUNTIME_ONLY_EFFORTS = new Set(["ultra"]);
 export const CODEX_RUNTIME_EFFORT_ERROR = "Unsupported effort 'ultra' on the inference API. Ultra is a Codex runtime orchestration mode; select it in a compatible native client. For a router model alias, choose an API effort such as max. Ultrafast speed is supported separately.";

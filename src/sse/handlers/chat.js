@@ -28,7 +28,9 @@ import { handleComboChat, handleFusionChat, detectRequiredCapabilities } from "o
 import { augmentModelsWithCapacityAdapter, withCapacityAdapterStripping, getActiveAdapterStrategy } from "open-sse/services/capacityAdapter.js";
 import { handleBypassRequest } from "open-sse/utils/bypassHandler.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
-import { detectFormatByEndpoint } from "open-sse/translator/formats.js";
+import { detectFormatByEndpoint, FORMATS } from "open-sse/translator/formats.js";
+import { detectFormat } from "open-sse/services/provider.js";
+import { createCodexTurnRoute } from "open-sse/services/codexTurnState.js";
 import { resolveSessionIdentity } from "open-sse/utils/sessionManager.js";
 import * as log from "../utils/logger.js";
 import { updateProviderCredentials, checkAndRefreshToken } from "../services/tokenRefresh.js";
@@ -303,6 +305,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   // Extract userAgent from request
   const userAgent = request?.headers?.get("user-agent") || "";
+  const sourceFormatOverride = request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null;
+  const turnRoute = provider === "codex" && request && (sourceFormatOverride || detectFormat(body)) === FORMATS.OPENAI_RESPONSES
+    ? createCodexTurnRoute(request.headers, body, apiKey) : null;
 
   // Try with available accounts (fallback on errors)
   const excludeConnectionIds = new Set();
@@ -312,7 +317,9 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
 
   while (true) {
     if (request?.signal?.aborted) return errorResponse(499, "Request aborted");
-    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, { requestedModel: requestedModel || model, requestControls });
+    const credentials = await getProviderCredentials(provider, excludeConnectionIds, model, {
+      requestedModel: requestedModel || model, requestControls, preferredConnectionId: turnRoute?.preferredConnectionId,
+    });
 
     if (credentials?.noEligibleControls) {
       if (poolOutcome) { poolOutcome.canFallback = true; poolOutcome.reason ||= "api-model-unavailable"; }
@@ -367,7 +374,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
         requestedEffort: requestControls.effort,
         ...(poolOutcome ? { routePolicy: "openai-api-first", fallbackReason: poolOutcome.fallbackReason } : {}), ...event,
       }); } : null,
-      credentials: refreshedCredentials,
+      credentials: turnRoute ? { ...refreshedCredentials, codexTurnRoute: turnRoute } : refreshedCredentials,
       log,
       clientRawRequest,
       connectionId: credentials.connectionId,
@@ -397,7 +404,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       // Per-provider user overrides (custom headers / connect timeout) from settings
       providerOverrides: (chatSettings.providerOverrides || {})[provider] || null,
       // Detect source format by endpoint + body
-      sourceFormatOverride: request?.url ? detectFormatByEndpoint(new URL(request.url).pathname, body) : null,
+      sourceFormatOverride,
       onCredentialsRefreshed: async (newCreds) => {
         await updateProviderCredentials(credentials.connectionId, {
           ...newCreds,
@@ -427,6 +434,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     }
 
     if (result.success) {
+      turnRoute?.forwardTo(result.response.headers, credentials.connectionId);
       result.response.headers.set("x-9router-request-id", controlRequestId);
       if (requestControls) {
         result.response.headers.set("x-9router-requested-speed", requestControls.tier || "default");

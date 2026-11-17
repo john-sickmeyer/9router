@@ -1,5 +1,7 @@
-import { beforeEach, describe, it, expect, vi } from "vitest";
-const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null, usage: null }));
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import * as transport from "../../open-sse/utils/proxyFetch.js";
+import { CODEX_TURN_STATE_HEADER } from "../../open-sse/config/studioControls.js";
+const fx = vi.hoisted(() => ({ accounts: [], sent: [], events: [], failFirst: false, reportedTier: null, usage: null, realCodex: false }));
 vi.mock("../../open-sse/services/usage/claude.js", () => ({ getClaudeUsage: async () => fx.usage }));
 vi.mock("@/lib/localDb", () => ({
   getSettings: async () => ({ requireApiKey: false, providerThinking: { codex: { mode: "low" } } }),
@@ -20,7 +22,7 @@ vi.mock("../../open-sse/utils/requestLogger.js", () => ({ createRequestLogger: a
 vi.mock("../../open-sse/executors/index.js", async () => {
   const { CodexExecutor } = await import("../../open-sse/executors/codex.js");
   const { assertOutboundControls } = await import("../../open-sse/services/studioControls.js");
-  return { getExecutor: () => ({ noAuth: true, async execute(args) {
+  return { getExecutor: () => fx.realCodex ? new CodexExecutor() : ({ noAuth: true, async execute(args) {
     const isClaude = args.model.startsWith("claude-");
     const body = isClaude ? args.body : new CodexExecutor().transformRequest(args.model, args.body, true, args.credentials);
     assertOutboundControls(body, args.credentials.studioControls);
@@ -35,7 +37,94 @@ vi.mock("../../open-sse/executors/index.js", async () => {
 const { handleChat } = await import("../../src/sse/handlers/chat.js");
 beforeEach(() => {
   fx.sent = []; fx.events = []; fx.failFirst = false; fx.reportedTier = null; fx.usage = null;
+  fx.realCodex = false;
   fx.accounts = ["one", "two"].map(id => ({ id, provider: "codex", isActive: true, accessToken: "fixture" }));
+});
+
+describe("Codex turn-state through the Studio Responses route", () => {
+  const model = "cx/gpt-6.2-sol@ultrafast";
+  const markerA = "opaque.A+/==";
+  const markerB = "opaque.B+/==";
+  let replies, sent, session;
+
+  beforeEach(() => {
+    fx.realCodex = true;
+    for (const account of fx.accounts) account.providerSpecificData = { workspaceId: account.id };
+    session = crypto.randomUUID();
+    replies = [];
+    sent = [];
+    vi.spyOn(transport, "proxyAwareFetch").mockImplementation(async (_url, init) => {
+      const headers = new Headers(init.headers);
+      sent.push({ account: headers.get("chatgpt-account-id"), state: headers.get(CODEX_TURN_STATE_HEADER), hint: headers.get("x-codex-routing-hint") });
+      const reply = replies.shift();
+      if (!reply) throw new Error("Unexpected provider call");
+      const responseHeaders = new Headers({ "content-type": "text/event-stream" });
+      if (reply.state) responseHeaders.set(CODEX_TURN_STATE_HEADER, reply.state);
+      if (reply.status) return Response.json({ error: { message: "Rate limit reached" } }, { status: reply.status, headers: responseHeaders });
+      const completed = { type: "response.completed", response: { id: "resp_test", model: "gpt-6.2-sol",
+        status: "completed", service_tier: "ultrafast", output: [{ type: "message", role: "assistant",
+          content: [{ type: "output_text", text: "OK" }] }], usage: { input_tokens: 1, output_tokens: 1 } } };
+      return new Response("data: " + JSON.stringify(completed) + "\n\n", { headers: responseHeaders });
+    });
+  });
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  async function call({ state, stream = true, thread = session, key = "client-one", turn = "turn-one", path = "responses" } = {}) {
+    const headers = new Headers({ "content-type": "application/json", session_id: thread,
+      authorization: "Bearer " + key, "x-codex-turn-metadata": JSON.stringify({ turn_id: turn }) });
+    if (state) headers.set(CODEX_TURN_STATE_HEADER, state);
+    const input = path === "responses" ? { input: "Return OK" } : { messages: [{ role: "user", content: "Return OK" }] };
+    const response = await handleChat(new Request("http://localhost/v1/" + path, {
+      method: "POST", headers, body: JSON.stringify({ model, stream, ...input }),
+    }));
+    expect(response.status).toBe(200);
+    await response.text();
+    if (response.headers.has(CODEX_TURN_STATE_HEADER)) {
+      expect(response.headers.get("access-control-expose-headers")).toContain(CODEX_TURN_STATE_HEADER);
+    }
+    return response.headers.get(CODEX_TURN_STATE_HEADER);
+  }
+
+  it.each([true, false])("passes an issued marker unchanged and prefers its eligible owner (stream=%s)", async stream => {
+    replies.push({ state: markerA }, {}, {});
+    expect(await call({ stream })).toBe(markerA);
+    fx.accounts.reverse();
+    expect(await call({ state: markerA, stream })).toBeNull();
+    await call({ stream });
+    expect(sent.map(r => [r.account, r.state])).toEqual([["one", null], ["one", markerA], ["two", null]]);
+    expect(sent.every(r => r.hint === "model=gpt-6.2-sol;tier=ultrafast")).toBe(true);
+    expect(fx.events).toContainEqual(expect.objectContaining({ state: "outbound", sentTurnState: true, receivedTurnState: false }));
+  });
+
+  it("rotates an unavailable owner without replaying its marker, including clients that keep echoing the first value", async () => {
+    replies.push({ state: markerA }, { status: 429, state: "error-marker" }, { state: markerB }, {}, {});
+    await call();
+    expect(await call({ state: markerA })).toBe(markerB);
+    await call({ state: markerA });
+    await call({ state: markerB });
+    expect(sent.map(r => [r.account, r.state])).toEqual([
+      ["one", null], ["one", markerA], ["two", null], ["two", markerB], ["two", markerB],
+    ]);
+  });
+
+  it("echoes a marker received before a same-account transport retry", async () => {
+    replies.push({ status: 503, state: markerA }, {});
+    expect(await call()).toBe(markerA);
+    expect(sent.map(r => [r.account, r.state])).toEqual([["one", null], ["one", markerA]]);
+  }, 20000);
+
+  it("isolates fresh turns, different clients or sessions, changed OAuth workspaces and translated routes", async () => {
+    replies.push({ state: markerA }, {}, {}, {}, {}, {}, { state: "translated-marker" });
+    await call();
+    await call({ state: "never-issued" });
+    await call({ state: markerA, thread: "another-session" });
+    await call({ state: markerA, key: "another-client" });
+    await call({ state: markerA, turn: "next-turn" });
+    fx.accounts[0].providerSpecificData.workspaceId = "reauthenticated-workspace";
+    await call({ state: markerA });
+    expect(await call({ state: markerA, path: "chat/completions" })).toBeNull();
+    expect(sent.map(r => r.state)).toEqual(Array(7).fill(null));
+  });
 });
 describe("Studio client-to-provider pipeline", () => {
   it("rotates Claude after weekly exhaustion and skips it on subsequent requests", async () => {

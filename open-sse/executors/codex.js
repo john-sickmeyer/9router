@@ -1,4 +1,5 @@
-import { CODEX_EFFORTS, SPEEDS, CODEX_ROUTING_HINT_HEADER, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
+import { createHash } from "node:crypto";
+import { CODEX_EFFORTS, SPEEDS, CODEX_ROUTING_HINT_HEADER, CODEX_TURN_STATE_HEADER, CODEX_RUNTIME_ONLY_EFFORTS, CODEX_RUNTIME_EFFORT_ERROR } from "../config/studioControls.js";
 import { BaseExecutor } from "./base.js";
 import { CODEX_DEFAULT_INSTRUCTIONS } from "../config/codexInstructions.js";
 import { PROVIDERS } from "../config/providers.js";
@@ -191,6 +192,16 @@ function extractSseErrorMessage(text, fallback) {
   return fallback || CODEX_MODEL_CAPACITY_MESSAGE;
 }
 
+function turnStateOwner(headers) {
+  const wire = new Headers(headers);
+  const workspace = wire.get("chatgpt-account-id");
+  if (workspace) return "workspace:" + workspace;
+  // Legacy connections can rely on the bearer alone. A different grant on
+  // that connection must establish its own state instead of replaying it.
+  const authorization = wire.get("authorization");
+  return authorization ? "grant:" + createHash("sha256").update(authorization).digest("hex") : null;
+}
+
 function codexSseErrorResponse(status, message) {
   return new Response(JSON.stringify({
     error: {
@@ -246,16 +257,27 @@ export class CodexExecutor extends BaseExecutor {
     return this._isCompact ? `${base}/compact` : base;
   }
 
-  finalizeHeaders(headers, body) {
+  finalizeHeaders(headers, body, credentials) {
     // Match the native client's model/tier hint using the final wire values.
     // Remove differently cased overrides so fetch cannot combine stale hints.
     for (const name of Object.keys(headers)) {
-      if (name.toLowerCase() === CODEX_ROUTING_HINT_HEADER) delete headers[name];
+      const lower = name.toLowerCase();
+      if (lower === CODEX_ROUTING_HINT_HEADER || lower === CODEX_TURN_STATE_HEADER) delete headers[name];
     }
     if (body?.model) {
       headers[CODEX_ROUTING_HINT_HEADER] = `model=${body.model}${body.service_tier ? `;tier=${body.service_tier}` : ""}`;
     }
+    if (credentials?.codexTurnRoute) {
+      const state = credentials.codexTurnRoute.forRequest(credentials.connectionId, turnStateOwner(headers));
+      if (state) headers[CODEX_TURN_STATE_HEADER] = state;
+    }
     return headers;
+  }
+
+  observeResponseHeaders(sent, received, credentials) {
+    if (credentials?.codexTurnRoute) {
+      credentials.codexTurnRoute.observe(credentials.connectionId, turnStateOwner(sent), received.get(CODEX_TURN_STATE_HEADER));
+    }
   }
 
   async refreshCredentials(credentials, log) {

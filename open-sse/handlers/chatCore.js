@@ -1,4 +1,5 @@
 import { applyControls } from "../services/studioControls.js";
+import { CODEX_TURN_STATE_HEADER } from "../config/studioControls.js";
 import { observeControlResponse } from "../services/controlResponse.js";
 import { preflightOpenaiStream } from "../services/openaiPlatform.js";
 import { detectFormat, getTargetFormat, resolveTransport } from "../services/provider.js";
@@ -425,7 +426,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     providerUrl = result.url;
     providerHeaders = result.headers;
     finalBody = result.transformedBody;
-    await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.reasoning_effort || finalBody?.output_config?.effort || null });
+    await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.reasoning_effort || finalBody?.output_config?.effort || null,
+      ...turnStateReceipt(provider, result) });
     providerResponseFormat = result.responseFormat || targetFormat;
     const renamedToolNames = takeRenamedToolNames(translatedBody);
     if (renamedToolNames?.size) {
@@ -495,7 +497,8 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
           if (retryResult.response.ok) {
             providerResponse = retryResult.response;
             finalBody = retryResult.transformedBody;
-            await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null });
+            await onControlEvent?.({ state: "outbound", sentTier: finalBody?.service_tier || finalBody?.speed || "default", sentEffort: finalBody?.reasoning?.effort || finalBody?.output_config?.effort || null,
+              ...turnStateReceipt(provider, retryResult) });
             providerUrl = retryResult.url;
             providerResponseFormat = retryResult.responseFormat || targetFormat;
           }
@@ -579,4 +582,12 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 export function isTokenExpiringSoon(expiresAt, bufferMs = 5 * 60 * 1000) {
   if (!expiresAt) return false;
   return new Date(expiresAt).getTime() - Date.now() < bufferMs;
+}
+
+function turnStateReceipt(provider, result) {
+  if (provider !== "codex") return {};
+  return {
+    sentTurnState: new Headers(result.headers).has(CODEX_TURN_STATE_HEADER),
+    receivedTurnState: result.response.headers.has(CODEX_TURN_STATE_HEADER),
+  };
 }

@@ -138,7 +138,7 @@ export class BaseExecutor {
       const headers = this.buildHeaders(credentials, stream, url, model, transformedBody);
       // User per-provider override wins over registry headers (blocked names filtered at the API)
       if (providerOverrides?.headers) Object.assign(headers, providerOverrides.headers);
-      this.finalizeHeaders(headers, transformedBody);
+      this.finalizeHeaders(headers, transformedBody, credentials);
 
       if (!retryAttemptsByUrl[urlIndex]) retryAttemptsByUrl[urlIndex] = 0;
 
@@ -165,6 +165,7 @@ export class BaseExecutor {
           ...(directFetch ? { directFetch } : {}),
         }, effectiveProxyOptions);
         clearTimeout(connectTimer);
+        this.observeResponseHeaders?.(headers, response.headers, credentials);
         const ct = response.headers?.get?.("content-type") || "";
         const cl = response.headers?.get?.("content-length") || "?";
         dbg("FETCH", `${this.provider.toUpperCase()} ← ${response.status} | ttft=${Date.now() - fetchT0}ms | ct=${ct} | cl=${cl}`);
