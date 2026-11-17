@@ -33,12 +33,12 @@ def atomic_json(path, data):
     os.chmod(tmp, 0o600)
     tmp.replace(path)
 
-def health(rev, baseline=None):
+def health(rev, baseline=None, validate_catalog=True):
     state = status()
     if state['release'] != rev: raise RuntimeError('Worker is serving the wrong release')
     code, catalog = request(PORT, DATA, '/v1/models', admin=True)
     if code != 200: raise RuntimeError('Model catalog is unavailable')
-    return live_contract(state, catalog, baseline)
+    return live_contract(state, catalog, baseline, validate_catalog=validate_catalog)
 
 def run(*args, check=True, **kwargs):
     return subprocess.run(args, check=check, **kwargs)
@@ -120,7 +120,7 @@ def recover():
         start()
         for _ in range(45):
             try:
-                health(previous.name)
+                health(previous.name, validate_catalog=False)
                 break
             except Exception: time.sleep(1)
         else: raise RuntimeError('Recovery worker is unhealthy; maintenance retained')
@@ -135,7 +135,7 @@ def activate(rev, migrate):
     ROOT.mkdir(parents=True, exist_ok=True)
     previous = (ROOT / 'current').resolve() if (ROOT / 'current').exists() else None
     if not previous and not migrate: raise RuntimeError('First install requires --migrate-stock')
-    baseline = health(previous.name) if previous and not migrate else None
+    baseline = health(previous.name, validate_catalog=False) if previous and not migrate else None
     backup = ROOT / 'backups' / (time.strftime('%Y%m%dT%H%M%SZ', time.gmtime()) + '-' + rev[:8])
     backup.mkdir(parents=True, mode=0o700)
     old_plist = PLIST.read_bytes() if PLIST.exists() else None
@@ -210,7 +210,7 @@ def activate(rev, migrate):
                 start()
                 for _ in range(45):
                     try:
-                        health(previous.name, baseline)
+                        health(previous.name, baseline, validate_catalog=False)
                         break
                     except Exception: time.sleep(1)
                 else: raise RuntimeError('Rollback worker is unhealthy; maintenance retained')

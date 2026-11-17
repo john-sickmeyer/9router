@@ -54,17 +54,21 @@ def catalog_contract(content, anthropic=False, pooled=False, kimi=False):
                 raise RuntimeError('Claude effort metadata is incomplete')
 
 
-def live_contract(status, catalog, baseline=None):
-    catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False), kimi=bool(status.get('kimiModels')))
-    expected = [f'cx/{model}' for model in CODEX] + [f'cc/{model}' for model in CLAUDE]
-    choices = status['choices']
-    if sorted(row['id'] for row in choices) != sorted(expected):
-        raise RuntimeError('Studio control choices changed')
-    for row in choices:
-        if row['efforts'] != EFFORTS or 'standard' not in row['speeds']:
-            raise RuntimeError('Studio speed/effort controls are incomplete')
-        if row['id'].startswith('cc/') and row['speeds'] != ['standard']:
-            raise RuntimeError('Claude Fast must remain disabled')
+def live_contract(status, catalog, baseline=None, validate_catalog=True):
+    # An activation preflight may inspect the previous release before the new
+    # model contract is live. Keep that read-only check compatible with the
+    # previous catalog while enforcing the current contract after activation.
+    if validate_catalog:
+        catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False), kimi=bool(status.get('kimiModels')))
+        expected = [f'cx/{model}' for model in CODEX] + [f'cc/{model}' for model in CLAUDE]
+        choices = status['choices']
+        if sorted(row['id'] for row in choices) != sorted(expected):
+            raise RuntimeError('Studio control choices changed')
+        for row in choices:
+            if row['efforts'] != EFFORTS or 'standard' not in row['speeds']:
+                raise RuntimeError('Studio speed/effort controls are incomplete')
+            if row['id'].startswith('cc/') and row['speeds'] != ['standard']:
+                raise RuntimeError('Claude Fast must remain disabled')
     pool = status.get('openaiPool', {})
     accounts = sorted((row['id'], row['provider']) for row in status.get('connectionIdentities', status['accounts'] + pool.get('accounts', [])))
     if baseline is not None and accounts != baseline:

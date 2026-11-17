@@ -58,7 +58,7 @@ class ReleaseTest(unittest.TestCase):
                 with closing(sqlite3.connect(self.database)) as db, db:
                     db.execute("UPDATE accounts SET value='migrated'")
         release.start.side_effect = start
-        def health(rev, baseline=None):
+        def health(rev, baseline=None, **kwargs):
             if rev == self.new.name: raise RuntimeError('Broken catalog')
             return []
         with mock.patch.object(release, 'status', return_value={'pending': []}), mock.patch.object(release, 'health', side_effect=health):
