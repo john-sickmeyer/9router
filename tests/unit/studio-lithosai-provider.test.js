@@ -7,6 +7,23 @@ import { getCapabilitiesForModel } from "../../open-sse/providers/capabilities.j
 import { studioModelCatalog } from "../../open-sse/services/studioCatalog.js";
 import { validateLithosKey, lithosKimiModels } from "../../open-sse/services/lithosai.js";
 
+const accounts = vi.hoisted(() => ({ get: vi.fn(), fail: vi.fn() }));
+vi.mock("@/lib/localDb", () => ({
+  getSettings: async () => ({ requireApiKey: true }),
+  getModelAliases: async () => ({}), getComboByName: async () => null,
+  getProviderNodes: async () => [], getProviderConnectionById: async () => null,
+}));
+vi.mock("@/lib/db/repos/apiKeysRepo.js", () => ({
+  getApiKeyByKey: async () => ({ id: "fixture", access: { restricted: false } }),
+}));
+vi.mock("@/sse/services/auth.js", () => ({
+  getProviderCredentials: accounts.get, markAccountUnavailable: accounts.fail,
+  clearAccountError: vi.fn(), extractApiKey: request => request.headers.get("authorization")?.slice(7),
+  isValidApiKey: async key => key === "normal-client-key",
+}));
+vi.mock("@/sse/services/tokenRefresh.js", () => ({
+  checkAndRefreshToken: async (_provider, credentials) => credentials, updateProviderCredentials: vi.fn(),
+}));
 vi.mock("../../open-sse/utils/proxyFetch.js", async original => ({
   ...await original(), proxyAwareFetch: (url, options) => global.fetch(url, options),
 }));
@@ -22,6 +39,8 @@ vi.mock("../../open-sse/utils/requestLogger.js", () => ({
 }));
 
 const { handleChatCore } = await import("../../open-sse/handlers/chatCore.js");
+const { POST } = await import("../../src/app/api/v1/chat/completions/route.js");
+const { POST: postResponses } = await import("../../src/app/api/v1/responses/route.js");
 const slug = "kimi-k3.1-pro-ultra";
 const upstreamModel = "moonshotai/Kimi-K3.1-Pro-ultra";
 const route = `lithosai/${slug}`;
@@ -53,6 +72,124 @@ function sent() {
 
 beforeEach(() => vi.stubGlobal("fetch", vi.fn(async () => Response.json(completion))));
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
+
+describe("Lithos quota headers on the normal chat route", () => {
+  const quota = {
+    "x-ratelimit-limit-requests": "501", "x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-requests": "17s",
+    "x-ratelimit-limit-tokens": "900001", "x-ratelimit-remaining-tokens": "400007", "x-ratelimit-reset-tokens": "3m17s",
+  };
+  const extras = { "x-ratelimit-private": "discard", "set-cookie": "discard", "authorization": "discard" };
+  const upstreamCors = { "access-control-expose-headers": "authorization, x-ratelimit-private", "access-control-allow-origin": "https://provider.test" };
+  beforeEach(() => {
+    accounts.get.mockReset().mockResolvedValue({ connectionId: "lithos-test", apiKey: "fixture", providerSpecificData: {} });
+    accounts.fail.mockReset().mockResolvedValue({ shouldFallback: false });
+  });
+  function request(stream = false, model = route) {
+    return new Request("http://localhost/v1/chat/completions", {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer normal-client-key", origin: "https://client.test" },
+      body: JSON.stringify({ model, stream, messages: [{ role: "user", content: "hello" }] }),
+    });
+  }
+  function checkHeaders(response, expected) {
+    for (const key of Object.keys(quota)) expect(response.headers.get(key)).toBe(expected[key] ?? null);
+    for (const header of Object.keys(extras)) expect(response.headers.has(header)).toBe(false);
+    const exposed = (response.headers.get("access-control-expose-headers") || "").split(",").map(name => name.trim()).filter(Boolean).sort();
+    expect(exposed).toEqual(Object.keys(expected).sort());
+    if (exposed.length) expect(response.headers.get("access-control-allow-origin")).toBe("*");
+  }
+  it("forwards supplied values on JSON and SSE without buffering or inventing missing counters", async () => {
+    global.fetch.mockResolvedValueOnce(Response.json(completion, { headers: { ...quota, ...extras, ...upstreamCors } }));
+    const regular = await POST(request());
+    expect(regular.status).toBe(200);
+    checkHeaders(regular, quota);
+    expect((await regular.json()).choices[0].message.content).toBe("OK");
+
+    const partial = { "x-ratelimit-remaining-requests": "0", "x-ratelimit-reset-tokens": "90ms" };
+    const frame = { id: "fixture", object: "chat.completion.chunk", model: upstreamModel,
+      choices: [{ index: 0, delta: { content: "SSE content" }, finish_reason: "stop" }] };
+    let feed;
+    const delayed = new ReadableStream({ start(controller) { feed = controller; } });
+    global.fetch.mockResolvedValueOnce(new Response(delayed, {
+      headers: { "content-type": "text/event-stream", ...partial, ...extras },
+    }));
+    const stream = await POST(request(true));
+    expect(stream.headers.get("content-type")).toContain("text/event-stream");
+    checkHeaders(stream, partial);
+    feed.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(frame)}\n\ndata: [DONE]\n\n`));
+    feed.close();
+    expect(await stream.text()).toContain("SSE content");
+  });
+  it("preserves upstream Retry-After and actionable errors through account exhaustion", async () => {
+    global.fetch.mockResolvedValueOnce(Response.json({ error: { message: "Request capacity exhausted" } },
+      { status: 429, headers: { ...quota, ...extras, "retry-after": "17" } }));
+    accounts.get.mockReset().mockResolvedValueOnce({ connectionId: "lithos-test", apiKey: "fixture", providerSpecificData: {} }).mockResolvedValueOnce(null);
+    accounts.fail.mockResolvedValueOnce({ shouldFallback: true });
+    const limited = await POST(request());
+    expect(limited.status).toBe(429);
+    checkHeaders(limited, quota);
+    expect(limited.headers.get("retry-after")).toBe("17");
+    expect((await limited.json()).error.message).toContain("Request capacity exhausted");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+  it("forwards counters on translated Responses requests and direct HTTP input errors", async () => {
+    const partial = { "x-ratelimit-limit-tokens": "500000" };
+    global.fetch.mockResolvedValueOnce(Response.json(completion, { headers: { ...partial, ...extras } }));
+    const response = await postResponses(new Request("http://localhost/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json", authorization: "Bearer normal-client-key" },
+      body: JSON.stringify({ model: route, input: "hello", stream: false }),
+    }));
+    expect(response.status).toBe(200);
+    checkHeaders(response, partial);
+    expect((await response.json()).object).toBe("response");
+
+    global.fetch.mockResolvedValueOnce(Response.json({ error: { message: "Unsupported request field" } },
+      { status: 400, headers: { ...partial, ...extras } }));
+    const error = await POST(request(true));
+    expect(error.status).toBe(400);
+    checkHeaders(error, partial);
+    expect((await error.json()).error.message).toContain("Unsupported request field");
+  });
+  it("retains last upstream quota and the gateway retry deadline when every account is cooling down", async () => {
+    const retryAfter = new Date(Date.now() + 90000).toISOString();
+    accounts.get.mockReset().mockResolvedValueOnce({ connectionId: "a", apiKey: "fixture", providerSpecificData: {} })
+      .mockResolvedValueOnce({ allRateLimited: true, retryAfter, retryAfterHuman: "try again after cooling down" });
+    accounts.fail.mockResolvedValueOnce({ shouldFallback: true });
+    global.fetch.mockResolvedValueOnce(Response.json({ error: { message: "Token budget exhausted" } },
+      { status: 429, headers: { ...quota, ...extras, "retry-after": "132" } }));
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+    checkHeaders(response, quota);
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(85);
+    expect(Number(response.headers.get("retry-after"))).toBeLessThanOrEqual(90);
+    expect((await response.json()).error.message).toContain("Token budget exhausted");
+  });
+  it("returns only the winning account counters after a retry", async () => {
+    accounts.get.mockReset().mockResolvedValueOnce({ connectionId: "a", apiKey: "fixture-a", providerSpecificData: {} })
+      .mockResolvedValueOnce({ connectionId: "b", apiKey: "fixture-b", providerSpecificData: {} });
+    accounts.fail.mockResolvedValueOnce({ shouldFallback: true });
+    const winningQuota = { "x-ratelimit-remaining-tokens": "43" };
+    global.fetch.mockResolvedValueOnce(Response.json({ error: { message: "First account exhausted" } }, { status: 429, headers: quota }))
+      .mockResolvedValueOnce(Response.json(completion, { headers: winningQuota }));
+    const response = await POST(request());
+    expect(response.status).toBe(200);
+    checkHeaders(response, winningQuota);
+  });
+  it("carries documented counters through a response-conversion failure", async () => {
+    global.fetch.mockResolvedValueOnce(new Response("malformed provider JSON", {
+      headers: { ...quota, ...extras, "content-type": "application/json" },
+    }));
+    const response = await POST(request());
+    expect(response.status).toBe(502);
+    checkHeaders(response, quota);
+    expect((await response.json()).error.message).toMatch(/invalid JSON/i);
+  });
+  it("keeps other provider response headers unchanged", async () => {
+    global.fetch.mockResolvedValueOnce(Response.json(completion, { headers: { ...quota, ...extras } }));
+    const response = await POST(request(false, "moonshot/kimi-k3.1-pro"));
+    expect(response.status).toBe(200);
+    checkHeaders(response, {});
+  });
+});
 
 describe("LithosAI Kimi API discovery and catalog", () => {
   it("maps the stable picker ID to the provider-qualified Ultra model", async () => {

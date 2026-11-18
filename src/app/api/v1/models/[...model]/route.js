@@ -1,5 +1,7 @@
 import { buildModelsList } from "../route.js";
 import { getKeyAccessContext, filterModelsListForKey } from "@/sse/services/keyAccess.js";
+import { LITHOS_KIMI_ROUTE } from "open-sse/config/lithosai.js";
+import { publicLlmCatalog } from "open-sse/services/studioCatalog.js";
 
 // URL slug → service kind(s). `web` covers both webSearch and webFetch.
 const KIND_SLUG_MAP = {
@@ -53,8 +55,12 @@ export async function GET(request, { params }) {
 
     // Match the same LLM catalog exposed by GET /v1/models. A catch-all
     // parameter is required because provider-prefixed IDs contain a slash.
-    const models = await filterModelsListForKey(keyAccess, await buildModelsList([LLM_KIND]));
+    const base = await buildModelsList([LLM_KIND]);
+    const lithos = identifier === LITHOS_KIMI_ROUTE;
+    const catalog = lithos ? publicLlmCatalog(base, request?.headers) : base;
+    const models = await filterModelsListForKey(keyAccess, catalog);
     const matchedModel = models.find((candidate) => candidate.id === identifier);
+    const headers = lithos ? { "Cache-Control": "no-store", "Vary": "anthropic-version" } : undefined;
 
     if (!matchedModel) {
       return json(
@@ -65,11 +71,11 @@ export async function GET(request, { params }) {
             code: "model_not_found",
           },
         },
-        { status: 404 },
+        { status: 404, headers },
       );
     }
 
-    return json(matchedModel);
+    return json(matchedModel, { headers });
   } catch (error) {
     console.log("Error fetching model:", error);
     return json(

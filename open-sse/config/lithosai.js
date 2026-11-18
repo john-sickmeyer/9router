@@ -7,6 +7,10 @@ export const LITHOS_KIMI_MODEL = {
 };
 export const LITHOS_KIMI_ROUTE = `lithosai/${LITHOS_KIMI_MODEL.id}`;
 export const LITHOS_KIMI_EFFORTS = ["low", "high", "max"];
+export const LITHOS_RATE_LIMIT_HEADERS = new Set([
+  "x-ratelimit-limit-requests", "x-ratelimit-remaining-requests", "x-ratelimit-reset-requests",
+  "x-ratelimit-limit-tokens", "x-ratelimit-remaining-tokens", "x-ratelimit-reset-tokens",
+]);
 export const LITHOS_KIMI_CAPABILITIES = {
   vision: true,
   // Lithos rejects native video_url input. The gateway preserves that request and error.

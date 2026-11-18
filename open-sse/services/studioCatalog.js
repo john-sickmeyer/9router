@@ -1,9 +1,15 @@
 import { LOCAL_LLM_ROUTE, LOCAL_LLM_CONTEXT, LOCAL_LLM_CAPABILITIES, LOCAL_LLM_EFFORTS } from "../config/localLlm.js";
-import { STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, SPEEDS, SPEED_NAMES } from "../config/studioControls.js";
+import { STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, SPEEDS, SPEED_NAMES, isStudioCuratedCatalogEnabled } from "../config/studioControls.js";
 import { effortLevels } from "./studioControls.js";
 import { isOpenaiPoolEnabled, OPENAI_POOL_CONTEXT, OPENAI_POOL_PROVIDER } from "../config/openaiPlatform.js";
 import { MOONSHOT_K3_EFFORTS, MOONSHOT_K3_CONTEXT } from "../config/moonshot.js";
 import { LITHOS_KIMI_CAPABILITIES, LITHOS_KIMI_EFFORTS } from "../config/lithosai.js";
+
+export function publicLlmCatalog(models, headers) {
+  return isStudioCuratedCatalogEnabled()
+    ? studioModelCatalog(models, { anthropic: Boolean(headers?.get("anthropic-version")) })
+    : models;
+}
 
 // Keep the curated Codex families, with explicit speed-only choices. Effort stays
 // independent, so the picker never grows into every speed/effort permutation.

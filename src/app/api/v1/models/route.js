@@ -1,5 +1,4 @@
-import { studioModelCatalog } from "open-sse/services/studioCatalog.js";
-import { isStudioCuratedCatalogEnabled } from "open-sse/config/studioControls.js";
+import { publicLlmCatalog } from "open-sse/services/studioCatalog.js";
 import { PROVIDER_MODELS, PROVIDER_ID_TO_ALIAS, getModelKind } from "@/shared/constants/models";
 import {
   ALIAS_TO_ID,
@@ -669,9 +668,7 @@ export async function GET(request) {
     const models = await buildModelsList([LLM_KIND], { skipDynamicFetch });
     const data = await filterModelsListForKey(
       await getKeyAccessContext(request),
-      isStudioCuratedCatalogEnabled() ? studioModelCatalog(models, {
-        anthropic: Boolean(request?.headers?.get("anthropic-version")),
-      }) : models
+      publicLlmCatalog(models, request?.headers)
     );
     return Response.json({ object: "list", data, has_more: false, first_id: data[0]?.id ?? null, last_id: data.at(-1)?.id ?? null }, {
       headers: { "Access-Control-Allow-Origin": "*", "Vary": "anthropic-version", "Cache-Control": "no-store" },

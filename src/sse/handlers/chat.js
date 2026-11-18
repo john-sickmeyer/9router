@@ -522,7 +522,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       excludeConnectionIds.add(credentials.connectionId);
       lastError = result.error;
       lastStatus = result.status;
-      lastHeaders = upstreamResponseHeaders(result.response?.headers);
+      lastHeaders = upstreamResponseHeaders(result.response?.headers, provider);
       continue;
     }
 

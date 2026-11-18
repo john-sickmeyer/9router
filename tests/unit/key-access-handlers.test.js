@@ -240,6 +240,38 @@ describe("video: a body without a readable model is denied for restricted keys",
 });
 
 describe("/v1/models routes filter by key", () => {
+  it("returns the same curated Lithos model and permissions for single-model and listing requests", async () => {
+    vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
+    const id = "lithosai/kimi-k3.1-pro-ultra";
+    fx.connections = [{ id: "fixture", provider: "lithosai", isActive: true }];
+    fx.keys["sk-lithos"] = { id: "l", access: { restricted: true, allow: [id] } };
+    for (const key of ["sk-open", "sk-lithos", "sk-empty"]) {
+      const headers = auth(key);
+      const listed = await modelsRoute.GET(new Request("http://localhost/v1/models", { headers }));
+      const row = (await listed.json()).data.find(model => model.id === id);
+      const detail = await modelsKindRoute.GET(new Request(`http://localhost/v1/models/${id}`, { headers }),
+        { params: Promise.resolve({ model: id.split("/") }) });
+      if (key === "sk-empty") {
+        expect(row).toBeUndefined();
+        expect(detail.status).toBe(404);
+      } else {
+        expect(detail.status).toBe(200);
+        const { created: listingTime, ...listing } = row;
+        const { created: detailTime, ...actual } = await detail.json();
+        expect(actual).toEqual(listing);
+        expect(actual).toMatchObject({ name: "Kimi K3.1 Pro Ultra (LithosAI)", context_length: 1048576,
+          capabilities: { vision: true, tools: true, reasoning: true, videoInput: false,
+            effort: { low: { supported: true }, high: { supported: true }, max: { supported: true } } } });
+      }
+    }
+    const headers = { ...auth("sk-open"), "anthropic-version": "2023-06-01" };
+    const listing = await modelsRoute.GET(new Request("http://localhost/v1/models", { headers }));
+    expect((await listing.json()).data.some(model => model.id === id)).toBe(false);
+    const detail = await modelsKindRoute.GET(new Request(`http://localhost/v1/models/${id}`, { headers }),
+      { params: Promise.resolve({ model: id.split("/") }) });
+    expect(detail.status).toBe(404);
+    expect(detail.headers.get("vary")).toBe("anthropic-version");
+  });
   const list = async (k) => (await (await modelsRoute.GET(new Request("http://localhost/v1/models", { headers: auth(k) }))).json()).data.map((m) => m.id);
 
   it("curates discovery without bypassing key access, and returns Claude effort metadata", async () => {

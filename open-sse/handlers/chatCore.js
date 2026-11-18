@@ -556,7 +556,19 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
       log.errorLine(reqTag, "✗", `ERROR ${statusCode} · ${provider}/${model} · ${Date.now() - requestStartTime}ms${urlStr}\n    ${errMsg}`);
     }
     reqLogger.logError(new Error(message), finalBody || translatedBody);
-    return { ...createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers)), upstreamError };
+    return { ...createErrorResult(statusCode, errMsg, resetsAtMs, upstreamResponseHeaders(providerResponse.headers, provider)), upstreamError };
+  }
+
+  // All client formats and conversion errors share the same actual upstream quota.
+  const lithosHeaders = provider === "lithosai" ? upstreamResponseHeaders(providerResponse.headers, provider) : null;
+  function withUpstreamQuota(result) {
+    if (lithosHeaders) {
+      for (const [name, value] of Object.entries(lithosHeaders)) {
+        if (name === "access-control-expose-headers") result.response.headers.append(name, value);
+        else result.response.headers.set(name, value);
+      }
+    }
+    return result;
   }
 
   const billingContext = provider === "openai" ? { serviceTier: finalBody?.service_tier || "default", serviceTierSource: "requested" } : undefined;
@@ -564,7 +576,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     providerResponse = await observeControlResponse(providerResponse, requestControls, onControlEvent || undefined, billingContext, ultrafastSample);
   } catch (error) {
     trackPendingRequest(model, provider, connectionId, false, true);
-    return { ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message), fallbackSafe: false };
+    return withUpstreamQuota({ ...createErrorResult(HTTP_STATUS.BAD_GATEWAY, error.message), fallbackSafe: false });
   }
 
   const sharedCtx = { provider, model, body, stream, translatedBody, finalBody, requestStartTime, connectionId, apiKey, clientRawRequest, onRequestSuccess, pxpipe: pxpipeSummary, reqTag, log, billingContext };
@@ -577,19 +589,19 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   // this path — handleForcedSSEToJson returns null when the body is not SSE.
   if (!clientRequestedStreaming && (providerRequiresStreaming || providerResponseFormat === FORMATS.OPENAI_RESPONSES)) {
     const result = await handleForcedSSEToJson({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, customToolNames, toolNameMap, trackDone, appendLog });
-    if (result) { streamController.handleComplete(); return { ...result, fallbackSafe: false }; }
+    if (result) { streamController.handleComplete(); return withUpstreamQuota({ ...result, fallbackSafe: false }); }
   }
 
   // True non-streaming response
   if (!stream) {
     const result = await handleNonStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, reqLogger, toolNameMap, customToolNames, trackDone, appendLog });
     streamController.handleComplete();
-    return { ...result, fallbackSafe: false };
+    return withUpstreamQuota({ ...result, fallbackSafe: false });
   }
 
   // Streaming response
   const { onStreamComplete, streamDetailId } = buildOnStreamComplete({ ...sharedCtx });
-  return handleStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, userAgent, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, credentials });
+  return withUpstreamQuota(await handleStreamingResponse({ ...sharedCtx, providerResponse, sourceFormat, targetFormat: providerResponseFormat, userAgent, reqLogger, toolNameMap, customToolNames, streamController, onStreamComplete, streamDetailId, credentials }));
 }
 
 export function isTokenExpiringSoon(expiresAt, bufferMs = 5 * 60 * 1000) {
