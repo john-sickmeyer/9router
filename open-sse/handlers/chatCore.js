@@ -33,6 +33,8 @@ import { compressMessages, formatRtkLog } from "../rtk/index.js";
 import { compressWithHeadroom, formatHeadroomLog, formatHeadroomSizeLog, isHeadroomPhantomSavings } from "../rtk/headroom.js";
 import { compressWithPxpipe } from "../rtk/pxpipe.js";
 import { getCapabilitiesForModel } from "../providers/capabilities.js";
+import { isLithosKimiModel } from "../config/lithosai.js";
+import { detectRequiredCapabilities } from "../services/combo.js";
 import { stripUnsupportedModalities } from "../translator/concerns/modality.js";
 import { prefetchRemoteImages } from "../translator/concerns/prefetch.js";
 import { defaultClaudeToolType, shouldDefaultClaudeToolType } from "../translator/concerns/toolCall.js";
@@ -194,7 +196,14 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   // Auto-strip media blocks the model can't read (vision/audio/pdf) before translation.
   if (!passthrough) {
-    const caps = getCapabilitiesForModel(provider, model);
+    const lithosKimi = isLithosKimiModel(provider, model);
+    const caps = getCapabilitiesForModel(provider, lithosKimi ? stripThinkingSuffix(model) : model);
+    if (lithosKimi) {
+      const inputs = detectRequiredCapabilities(body, { forValidation: true, forwardVideoUrl: sourceFormat === FORMATS.OPENAI });
+      for (const required of inputs) {
+        if (!caps[required]) return createErrorResult(HTTP_STATUS.BAD_REQUEST, `LithosAI Kimi does not support this input modality: ${required}.`);
+      }
+    }
     if (stripUnsupportedModalities(body, sourceFormat, caps)) {
       log?.debug?.("MODALITY", `stripped unsupported media for ${provider}/${model}`);
     }

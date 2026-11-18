@@ -4,6 +4,7 @@
 export const OPENAI_BLOCK = {
   TEXT: "text",
   IMAGE_URL: "image_url",
+  VIDEO_URL: "video_url",
   IMAGE: "image",
   INPUT_AUDIO: "input_audio",
   AUDIO_URL: "audio_url",

@@ -1,4 +1,5 @@
 import { isLocalLlm, LOCAL_LLM_CAPABILITIES } from "../config/localLlm.js";
+import { LITHOS_KIMI_CAPABILITIES, LITHOS_KIMI_MODEL } from "../config/lithosai.js";
 // Model capabilities — what each model can read/do beyond plain text.
 //
 // Fallback order (first match wins), result merged over DEFAULT_CAPABILITIES:
@@ -240,6 +241,10 @@ const DEVIN_CLI_GPT_CAPS = { vision: true, reasoning: true, search: true, thinki
  * Provider-specific capability overrides. Keyed by provider alias/id.
  */
 export const PROVIDER_CAPABILITIES = {
+  lithosai: {
+    [LITHOS_KIMI_MODEL.id]: LITHOS_KIMI_CAPABILITIES,
+    [LITHOS_KIMI_MODEL.upstreamModelId]: LITHOS_KIMI_CAPABILITIES,
+  },
   // NVIDIA NIM is OpenAI-compatible → rejects MiniMax/GLM native `thinking` field.
   // Force openai reasoning_effort format for its reasoning models. #issue
   "nvidia": {

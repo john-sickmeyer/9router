@@ -7,6 +7,7 @@ import { getCapabilitiesForModel } from "../../providers/capabilities.js";
 import { getThinkingLevels } from "../../providers/thinkingLevels.js";
 import { PROVIDERS } from "../../providers/index.js";
 import { MOONSHOT_K3_PATTERN, MOONSHOT_K3_EFFORTS } from "../../config/moonshot.js";
+import { isLithosKimiModel, LITHOS_KIMI_EFFORTS } from "../../config/lithosai.js";
 import { LEVEL_TO_BUDGET, budgetToLevel, effortToBudget, effortToThinkingLevel } from "./thinking.js";
 
 // Map a target wire-format to its native thinking format (when capability has none).
@@ -125,12 +126,18 @@ export function validateThinkingIntent(provider, model, body) {
     }
     return null;
   }
-  if (provider !== "moonshot" || !MOONSHOT_K3_PATTERN.test(cleanModel)) return null;
+  const lithosKimi = isLithosKimiModel(provider, cleanModel);
+  if (!lithosKimi && (provider !== "moonshot" || !MOONSHOT_K3_PATTERN.test(cleanModel))) return null;
+  const efforts = lithosKimi ? LITHOS_KIMI_EFFORTS : MOONSHOT_K3_EFFORTS;
+  const platform = lithosKimi ? "LithosAI" : "Kimi API Platform";
+  if (lithosKimi && cleanModel !== model && !override) {
+    return `Unknown reasoning suffix for ${platform} ${cleanModel}. Supported efforts: ${efforts.join(", ")}.`;
+  }
   const intent = extractThinking(body);
   for (const cfg of [override, intent]) {
     if (!cfg || cfg.mode === "auto") continue;
-    if (cfg.mode !== "level" || !MOONSHOT_K3_EFFORTS.includes(cfg.level)) {
-      return `Kimi API Platform ${cleanModel} supports reasoning effort: ${MOONSHOT_K3_EFFORTS.join(", ")}. Thinking cannot be disabled; token budgets are unsupported.`;
+    if (cfg.mode !== "level" || !efforts.includes(cfg.level)) {
+      return `${platform} ${cleanModel} supports reasoning effort: ${efforts.join(", ")}. Thinking cannot be disabled; token budgets are unsupported.`;
     }
   }
   if (override?.mode === "level" && intent?.mode === "level" && override.level !== intent.level) {
@@ -497,7 +504,7 @@ export function applyThinking(targetFormat, model, body, provider = null, intent
   // An OpenAI-shaped client's ask arrives via the captured intent instead.
   const display = typeof body.thinking?.display === "string" ? body.thinking.display : intent?.display;
   stripAll(body);
-  if (provider === "moonshot" && MOONSHOT_K3_PATTERN.test(cleanModel)) {
+  if (isLithosKimiModel(provider, cleanModel) || (provider === "moonshot" && MOONSHOT_K3_PATTERN.test(cleanModel))) {
     // Auto leaves the API's default (max) intact; explicit efforts stay verbatim.
     if (cfg.mode === "level") body.reasoning_effort = cfg.level;
     return body;

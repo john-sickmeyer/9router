@@ -1,6 +1,7 @@
 // Studio fork: explicit controls, separate from the generated provider registry.
 // Model-level speed/effort controls shared by all Studio Codex accounts.
 import { STUDIO_KIMI_MODELS } from "./moonshot.js";
+import { LITHOS_KIMI_MODEL, LITHOS_KIMI_ROUTE } from "./lithosai.js";
 export const STUDIO_CONTROL_VERSION = 1;
 export const CAPABILITY_TTL_MS = 6 * 60 * 60 * 1000;
 export const CODEX_CATALOG_VERSION = "0.169.0";
@@ -31,6 +32,7 @@ export const STUDIO_VISIBLE_MODELS = [
   { id: "cc/claude-opus-5-5", provider: "claude", name: "Claude Opus 5.5" },
   { id: "cc/claude-fable-5-2", provider: "claude", name: "Claude Fable 5.2" },
   ...STUDIO_KIMI_MODELS,
+  { id: LITHOS_KIMI_ROUTE, provider: "lithosai", name: LITHOS_KIMI_MODEL.name },
 ];
 // Speed-only picker variants: effort remains a native client control.
 export const STUDIO_CODEX_PICKER_SPEEDS = ["standard", "fast", "ultrafast"];

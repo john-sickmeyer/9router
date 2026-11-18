@@ -4,6 +4,7 @@ import { prepareClaudeRequest, ensureTrailingUserTurn } from "./formats/claude.j
 import { cloakClaudeTools, decloakStreamChunk } from "../utils/claudeCloaking.js";
 import { restoreToolNames } from "../utils/opencodeFingerprint.js";
 import { filterToOpenAIFormat } from "./formats/openai.js";
+import { isLithosKimiModel } from "../config/lithosai.js";
 import { normalizeThinkingConfig } from "../services/provider.js";
 import { applyThinking, captureThinking } from "./concerns/thinkingUnified.js";
 import { captureSessionId } from "../utils/sessionManager.js";
@@ -100,6 +101,7 @@ export function translateRequest(sourceFormat, targetFormat, model, body, stream
 
   const translationOptions = {
     preserveCacheControl: targetFormat === FORMATS.OPENAI && !!PROVIDERS[provider]?.quirks?.preserveCacheControl,
+    preserveVideoUrl: sourceFormat === FORMATS.OPENAI && targetFormat === FORMATS.OPENAI && isLithosKimiModel(provider, model),
   };
 
   // If same format, skip translation steps

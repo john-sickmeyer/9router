@@ -33,10 +33,26 @@ import {
 } from "@/shared/constants/keyAccess.js";
 import { errorResponse } from "open-sse/utils/error.js";
 import { HTTP_STATUS } from "open-sse/config/runtimeConfig.js";
+import { isLithosKimiModel, LITHOS_KIMI_EFFORTS, LITHOS_KIMI_ROUTE } from "open-sse/config/lithosai.js";
+import { parseSuffix } from "open-sse/translator/concerns/thinkingUnified.js";
 import * as log from "../utils/logger.js";
 
 const lower = (s) => String(s).toLowerCase();
-const canonicalModel = (provider, model) => lower(`${provider}/${model}`);
+function canonicalModel(provider, model) {
+  if (provider === "lithosai") {
+    const { cleanModel } = parseSuffix(model);
+    if (isLithosKimiModel(provider, cleanModel)) return lower(LITHOS_KIMI_ROUTE + model.slice(cleanModel.length));
+  }
+  return lower(`${provider}/${model}`);
+}
+
+function modelAllowed(allowed, provider, model) {
+  if (allowed.has(canonicalModel(provider, model))) return true;
+  if (provider !== "lithosai" || !allowed.has(LITHOS_KIMI_ROUTE)) return false;
+  // A base-model grant permits its supported effort suffixes. A suffix-only grant stays exact.
+  const { cleanModel, override } = parseSuffix(model);
+  return isLithosKimiModel(provider, cleanModel) && (override?.mode === "auto" || LITHOS_KIMI_EFFORTS.includes(override?.level));
+}
 
 /**
  * The client key, read from the same places and in the same order as the
@@ -107,7 +123,7 @@ async function isModelStringAllowed(ctx, requested) {
   const info = await getModelInfo(requested);
   // provider null ⇔ an existing combo with no members (routes nowhere).
   if (!info?.provider) return sets.combos.has(lower(requested));
-  return sets.models.has(canonicalModel(info.provider, info.model));
+  return modelAllowed(sets.models, info.provider, info.model);
 }
 
 export function keyAccessDeniedResponse(ctx, requested) {
@@ -142,7 +158,7 @@ export async function enforceKeyAccessResolved(ctx, requested, provider, model) 
   const label = requested || (provider ? `${provider}/${model ?? ""}` : "");
   if (!provider || !model) return keyAccessDeniedResponse(ctx, label);
   const sets = await getAllowSets(ctx);
-  return sets.models.has(canonicalModel(provider, model)) ? null : keyAccessDeniedResponse(ctx, label);
+  return modelAllowed(sets.models, provider, model) ? null : keyAccessDeniedResponse(ctx, label);
 }
 
 /**
@@ -193,7 +209,7 @@ export async function filterModelsListForKey(ctx, list) {
       if (sets.providers.has(lower(info.provider))) out.push(entry);
       continue;
     }
-    if (sets.models.has(canonicalModel(info.provider, info.model))) out.push(entry);
+    if (modelAllowed(sets.models, info.provider, info.model)) out.push(entry);
   }
   return out;
 }

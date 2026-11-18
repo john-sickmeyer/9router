@@ -1,4 +1,5 @@
 import { OPENAI_POOL_MODELS, OPENAI_POOL_CONTEXT, OPENAI_PRICE_TIER_MULTIPLIERS, OPENAI_LONG_CONTEXT_PRICE } from "../config/openaiPlatform.js";
+import { isLithosKimiModel, LITHOS_KIMI_MODEL } from "../config/lithosai.js";
 
 // Pricing rates for AI models — all rates in $/1M tokens
 //
@@ -201,7 +202,12 @@ export const MODEL_PRICING = {
  * Only include entries where price DIFFERS from MODEL_PRICING.
  * Keyed by provider alias (cc, cx, gc, gh, ...) or provider id (openai, anthropic, ...).
  */
+const LITHOS_KIMI_PRICING = { input: 6.00, cached: 0.30, output: 30.00, reasoning: 30.00 };
 export const PROVIDER_PRICING = {
+  lithosai: {
+    [LITHOS_KIMI_MODEL.id]: LITHOS_KIMI_PRICING,
+    [LITHOS_KIMI_MODEL.upstreamModelId]: LITHOS_KIMI_PRICING,
+  },
   // GitHub Copilot (gh) — explicit override, matches canonical gpt-5.3-codex rate
   gh: {
     "gpt-5.3-codex": { input: 1.75, output: 14.00, cached: 0.175, reasoning: 14.00, cache_creation: 1.75 },
@@ -427,6 +433,7 @@ export function matchPattern(pattern, model) {
  */
 export function getPricingForModel(provider, model) {
   if (!model) return null;
+  if (isLithosKimiModel(provider, model)) return LITHOS_KIMI_PRICING;
 
   // 1. Provider-specific override
   if (provider && PROVIDER_PRICING[provider]?.[model]) {
@@ -502,8 +509,8 @@ export function calculateCostFromTokens(tokens, pricing, context = {}) {
   cost += outputTokens * (pricing.output / 1000000) * outputMultiplier;
 
   const reasoningTokens = tokens.reasoning_tokens || 0;
-  // OpenAI output_tokens already includes its reasoning_tokens subset.
-  if (reasoningTokens > 0 && !["openai", "codex"].includes(context.provider)) {
+  // These providers include reasoning_tokens in their reported output count.
+  if (reasoningTokens > 0 && !["openai", "codex", "lithosai"].includes(context.provider)) {
     cost += reasoningTokens * ((pricing.reasoning || pricing.output) / 1000000);
   }
 

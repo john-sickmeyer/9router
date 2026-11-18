@@ -12,6 +12,7 @@ CLAUDE = ['claude-opus-5-5', 'claude-fable-5-2']
 SPEEDS = ['standard', 'fast', 'ultrafast']
 EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 KIMI = ['moonshot/kimi-k3.1-pro', 'moonshot/kimi-k3.1-pro-highspeed']
+LITHOS_KIMI = 'lithosai/kimi-k3.1-pro-ultra'
 
 
 def request(port, data_dir, path, payload=None, admin=False, headers=None):
@@ -32,11 +33,12 @@ def request(port, data_dir, path, payload=None, admin=False, headers=None):
         return error.code, error.read()
 
 
-def catalog_contract(content, anthropic=False, pooled=False, kimi=False):
+def catalog_contract(content, anthropic=False, pooled=False, kimi=False, lithos=False):
     models = json.loads(content)['data']
     expected = (CLAUDE if anthropic else
         [f'{"" if pooled else "cx/"}{model}@{speed}' for model in CODEX for speed in SPEEDS] + [f'cc/{model}' for model in CLAUDE])
     if kimi and not anthropic: expected += KIMI
+    if lithos and not anthropic: expected.append(LITHOS_KIMI)
     local = [model for model in models if model['id'] == 'local/deepseek-v4.1-flash-native']
     if local and not anthropic:
         if len(local) != 1 or local[0].get('context_length') != 65536:
@@ -48,6 +50,12 @@ def catalog_contract(content, anthropic=False, pooled=False, kimi=False):
     if sorted(model['id'] for model in models) != sorted(expected):
         raise RuntimeError('Model catalog no longer matches the approved Studio choices')
     for model in models:
+        if model['id'] == LITHOS_KIMI:
+            caps = model.get('capabilities', {})
+            effort = caps.get('effort', {})
+            if (model.get('context_length') != 1048576 or not caps.get('vision') or not caps.get('tools')
+                    or not all(effort.get(level, {}).get('supported') for level in ['low', 'high', 'max'])):
+                raise RuntimeError('LithosAI Kimi catalog metadata is incomplete')
         if model['id'].split('/')[-1] in CLAUDE:
             effort = model.get('capabilities', {}).get('effort', {})
             if not all(effort.get(level, {}).get('supported') for level in EFFORTS):
@@ -59,7 +67,8 @@ def live_contract(status, catalog, baseline=None, validate_catalog=True):
     # model contract is live. Keep that read-only check compatible with the
     # previous catalog while enforcing the current contract after activation.
     if validate_catalog:
-        catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False), kimi=bool(status.get('kimiModels')))
+        catalog_contract(catalog, pooled=status.get('openaiPool', {}).get('enabled', False),
+                         kimi=bool(status.get('kimiModels')), lithos=bool(status.get('lithosModels')))
         expected = [f'cx/{model}' for model in CODEX] + [f'cc/{model}' for model in CLAUDE]
         choices = status['choices']
         if sorted(row['id'] for row in choices) != sorted(expected):

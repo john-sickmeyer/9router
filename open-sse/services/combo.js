@@ -122,10 +122,9 @@ function trailingUserItems(arr) {
   return arr.slice(i + 1);
 }
 
-// Detect which capabilities a request needs. Modalities (vision/pdf) are scanned
-// only on the current user turn; "search" is request-wide (lives in tools).
-// Returns a Set of: "vision" | "pdf" | "search".
-export function detectRequiredCapabilities(body) {
+// Routing scans the current turn. Input validation scans all replayed attachments
+// and treats plain text containing a data URI as text.
+export function detectRequiredCapabilities(body, { forValidation = false, forwardVideoUrl = false } = {}) {
   const required = new Set();
   if (!body || typeof body !== "object") return required;
 
@@ -142,7 +141,7 @@ export function detectRequiredCapabilities(body) {
     const t = b.type;
     if (t === "image_url" || t === "image" || t === "input_image") required.add("vision");
     if (t === "input_audio" || t === "audio_url" || t === "audio") required.add("audioInput");
-    if (t === "input_video" || t === "video_url" || t === "video") required.add("videoInput");
+    if (t === "input_video" || t === "video" || (t === "video_url" && !forwardVideoUrl)) required.add("videoInput");
     if (t === "file" || t === "document" || t === "input_file") {
       // Infer modality from embedded mime when available; fall back to pdf for generic files.
       let fmime = null;
@@ -188,18 +187,19 @@ export function detectRequiredCapabilities(body) {
     scanContent(m.content);
 
     // Scan string content for embedded data URIs
-    if (typeof m.content === "string") {
+    if (!forValidation && typeof m.content === "string") {
       if (m.content.includes("data:image/")) required.add("vision");
       else if (m.content.includes("data:audio/")) required.add("audioInput");
       else if (m.content.includes("data:application/pdf")) required.add("pdf");
     }
   };
 
-  // Modalities: current user turn only (trailing user run across each known shape).
-  for (const m of trailingUserItems(body.messages)) scanMessage(m);              // openai / claude / hermes / ollama
-  for (const it of trailingUserItems(body.input)) scanContent(it.content);       // responses
+  // Routing decisions normally use the current turn. Strict endpoints also validate replayed attachments.
+  const turns = forValidation ? (items) => Array.isArray(items) ? items : [] : trailingUserItems;
+  for (const m of turns(body.messages)) scanMessage(m);              // openai / claude / hermes / ollama
+  for (const it of turns(body.input)) scanContent(it?.content);      // responses
   const contents = body.contents || body.request?.contents;                      // gemini / antigravity
-  for (const c of trailingUserItems(contents)) scanContent(c.parts);
+  for (const c of turns(contents)) scanContent(c?.parts);
 
   // search: temporarily disabled in auto-switch (feature not wired yet).
 

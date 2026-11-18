@@ -9,6 +9,7 @@ const fx = vi.hoisted(() => ({
   ],
   keys: {},
   connections: [],
+  capacityAdapter: undefined,
 }));
 const mocks = vi.hoisted(() => ({
   getProviderCredentials: vi.fn(),
@@ -16,7 +17,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/localDb", () => ({
-  getSettings: async () => ({ requireApiKey: false, comboStrategy: "fallback" }),
+  getSettings: async () => ({ requireApiKey: false, comboStrategy: "fallback", capacityAdapter: fx.capacityAdapter }),
   getModelAliases: async () => ({}),
   getComboByName: async (name) => fx.combos.find((c) => c.name === name) || null,
   getProviderNodes: async () => [],
@@ -77,6 +78,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv("STUDIO_CURATED_CATALOG", "0");
   fx.connections = [];
+  fx.capacityAdapter = undefined;
   fx.keys = {
     "sk-open": { id: "o", name: "open", isActive: true, access: { restricted: false, allow: [] } },
     "sk-combo": { id: "c", name: "combo", isActive: true, access: { restricted: true, allow: ["Main"] } },
@@ -106,6 +108,33 @@ const chat = (model, k) => handleChat(post("/v1/chat/completions", { model, stre
 
 describe("chat (/v1/chat/completions, /v1/messages, /v1/responses all use handleChat)", () => {
   beforeEach(() => mocks.getProviderCredentials.mockResolvedValue({ connectionId: "conn", connectionName: "mock" }));
+
+  it("scopes Lithos Ultra to that exact provider and never switches an unsupported attachment to Moonshot", async () => {
+    vi.stubEnv("STUDIO_CURATED_CATALOG", "1");
+    const lithos = "lithosai/kimi-k3.1-pro-ultra";
+    const moonshot = "moonshot/kimi-k3.1-pro-highspeed";
+    fx.keys["sk-lithos"] = { id: "l", access: { restricted: true, allow: [lithos] } };
+    fx.keys["sk-low"] = { id: "lo", access: { restricted: true, allow: [lithos + "(low)"] } };
+    for (const allowed of [lithos, lithos + "(max)", "lithosai/moonshotai/Kimi-K3.1-Pro-ultra", "kimi-k3.1-pro-ultra"]) {
+      expect((await chat(allowed, "sk-lithos")).status).toBe(200);
+    }
+    expect((await chat(lithos + "(low)", "sk-low")).status).toBe(200);
+    vi.clearAllMocks();
+    for (const denied of [moonshot, "lithosai/another-model"]) expect((await chat(denied, "sk-lithos")).status).toBe(403);
+    expect((await chat(lithos + "(high)", "sk-low")).status).toBe(403);
+    expect(mocks.getProviderCredentials).not.toHaveBeenCalled();
+    fx.capacityAdapter = { pdf: { enabled: true, models: [moonshot] } };
+    for (const model of [lithos, "kimi-k3.1-pro-ultra"]) {
+      const req = post("/v1/chat/completions", { model, messages: [{ role: "user",
+        content: [{ type: "file", file: { file_data: "data:application/pdf;base64,VGVzdA==" } }] }] }, "sk-open");
+      await handleChat(req);
+    }
+    expect(mocks.getProviderCredentials.mock.calls.map(([provider]) => provider)).toEqual(["lithosai", "lithosai"]);
+    mocks.getProviderCredentials.mockClear();
+    mocks.getProviderCredentials.mockResolvedValue(null);
+    expect((await chat(lithos, "sk-open")).status).toBeGreaterThanOrEqual(400);
+    expect(mocks.getProviderCredentials.mock.calls.map(([provider]) => provider)).toEqual(["lithosai"]);
+  });
 
   it("unrestricted key reaches the provider for the combo and models", async () => {
     for (const m of ["Main", "openai/model-b"]) {

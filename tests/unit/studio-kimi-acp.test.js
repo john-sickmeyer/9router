@@ -1,5 +1,26 @@
 import { describe, expect, it } from 'vitest';
-import { enrichSessionResponse, createMetadataStream, loadCatalog } from '../../scripts/studio-kimi-acp.mjs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { enrichSessionResponse, createMetadataStream, loadCatalog, nativeCommand } from '../../scripts/studio-kimi-acp.mjs';
+
+it('selects an opted-in ACP owner only inside its configured Kimi profile', () => {
+  const home = mkdtempSync(join(tmpdir(), 'studio-kimi-owner-'));
+  const stock = join(home, '.kimi-code/bin/kimi');
+  const profile = join(home, 'profile');
+  const selected = join(profile, 'studio-acp/kimi');
+  try {
+    expect(nativeCommand(['acp'], { KIMI_CODE_HOME: profile }, home)).toBe(stock);
+    mkdirSync(join(profile, 'studio-acp'), { recursive: true });
+    symlinkSync(join(home, 'release/kimi'), selected);
+    expect(nativeCommand(['acp'], { KIMI_CODE_HOME: profile }, home)).toBe(selected);
+    expect(nativeCommand(['--version'], { KIMI_CODE_HOME: profile }, home)).toBe(stock);
+    expect(nativeCommand(['acp'], {}, home)).toBe(stock);
+    expect(nativeCommand(['acp'], { KIMI_CODE_HOME: profile, STUDIO_KIMI_NATIVE_PATH: stock }, home)).toBe(stock);
+  } finally {
+    rmSync(home, { force: true, recursive: true });
+  }
+});
 
 const pro = 'moonshot/kimi-k3.1-pro';
 const fast = `${pro}-highspeed`;

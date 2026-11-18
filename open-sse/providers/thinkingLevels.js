@@ -6,6 +6,7 @@ import { matchPattern } from "./pricing.js";
 import { resolveKiroEffortPath } from "../config/kiroConstants.js";
 import { getProviderModels } from "../config/providerModels.js";
 import { MOONSHOT_K3_EFFORTS } from "../config/moonshot.js";
+import { isLithosKimiModel, LITHOS_KIMI_EFFORTS } from "../config/lithosai.js";
 
 // Shared level sets (deduped) — verified against provider docs + wire in thinkingUnified.applyFormat.
 const L = {
@@ -113,6 +114,7 @@ const isOpenAICompatibleNode = (provider) => String(provider || "").startsWith("
 
 // Returns valid thinking levels for a model, or null when the model has no reasoning.
 export function getThinkingLevels(provider, model) {
+  if (isLithosKimiModel(provider, model)) return LITHOS_KIMI_EFFORTS;
   if (isLocalLlm(provider, model)) return LOCAL_LLM_EFFORTS;
   if (provider === "kiro" && resolveKiroEffortPath(model) === null) return null;
   const caps = getCapabilitiesForModel(provider, model);

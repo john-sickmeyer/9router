@@ -3,6 +3,7 @@ import { STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, SPEEDS, SPEED_NAMES 
 import { effortLevels } from "./studioControls.js";
 import { isOpenaiPoolEnabled, OPENAI_POOL_CONTEXT, OPENAI_POOL_PROVIDER } from "../config/openaiPlatform.js";
 import { MOONSHOT_K3_EFFORTS, MOONSHOT_K3_CONTEXT } from "../config/moonshot.js";
+import { LITHOS_KIMI_CAPABILITIES, LITHOS_KIMI_EFFORTS } from "../config/lithosai.js";
 
 // Keep the curated Codex families, with explicit speed-only choices. Effort stays
 // independent, so the picker never grows into every speed/effort permutation.
@@ -15,6 +16,11 @@ export function studioModelCatalog(models, { anthropic = false } = {}) {
     const source = available.get(id) || (pooled ? available.get(`openai/${base}`) : null);
     if (!source) return [];
     const entry = { ...source, name, display_name: name };
+    if (provider === "lithosai") {
+      return [{ ...entry, context_length: LITHOS_KIMI_CAPABILITIES.contextWindow,
+        capabilities: { ...entry.capabilities, ...LITHOS_KIMI_CAPABILITIES,
+          effort: { supported: true, ...Object.fromEntries(LITHOS_KIMI_EFFORTS.map(level => [level, { supported: true }])) } } }];
+    }
     if (provider === "moonshot") {
       return [{ ...entry, context_length: MOONSHOT_K3_CONTEXT,
         capabilities: { ...entry.capabilities, reasoning: true, tools: true, vision: true,

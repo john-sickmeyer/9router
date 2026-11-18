@@ -6,6 +6,7 @@ import { ultrafastStatus } from "@/lib/studio/ultrafastHealth.js";
 import { getOpenaiAdminBalances } from "@/lib/studio/openaiAdminBalance.js";
 import { CODEX_EFFORTS, CLAUDE_EFFORTS, CLAUDE_FAST_MODELS, CLAUDE_FAST_ENABLED, STUDIO_VISIBLE_MODELS, STUDIO_CODEX_PICKER_SPEEDS, isStudioCuratedCatalogEnabled, CAPABILITY_TTL_MS } from "open-sse/config/studioControls.js";
 import { STUDIO_KIMI_MODELS } from "open-sse/config/moonshot.js";
+import { LITHOS_KIMI_ROUTE } from "open-sse/config/lithosai.js";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +33,7 @@ export async function GET() {
     choices,
     connectionIdentities: allConnections.map(c => ({ id: c.id, provider: c.provider })),
     kimiModels: connections.some(c => c.provider === "moonshot") ? STUDIO_KIMI_MODELS.map(m => m.id) : [],
+    lithosModels: configured.has("lithosai") ? [LITHOS_KIMI_ROUTE] : [],
     poolChoices: isOpenaiPoolEnabled() ? OPENAI_POOL_MODELS.map(id => ({ id,
       speeds: ["standard", "fast", "ultrafast"], efforts: OPENAI_CURRENT_EFFORTS })) : [],
     openaiPool: {

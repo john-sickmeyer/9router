@@ -38,7 +38,7 @@ export function filterToOpenAIFormat(body, opts = {}) {
         if (block.type === CLAUDE_BLOCK.THINKING || block.type === CLAUDE_BLOCK.REDACTED_THINKING) continue;
 
         // Only keep valid OpenAI content types
-        if (VALID_OPENAI_CONTENT_TYPES.includes(block.type)) {
+        if (VALID_OPENAI_CONTENT_TYPES.includes(block.type) || (opts.preserveVideoUrl && block.type === OPENAI_BLOCK.VIDEO_URL)) {
           filteredContent.push(stripBlock(block));
         } else if (block.type === CLAUDE_BLOCK.TOOL_USE) {
           // Convert tool_use to tool_calls format (handled separately)

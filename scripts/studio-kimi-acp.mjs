@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Bridge 9Router model capabilities to stock ACP clients; the vendor CLI executes everything.
 import { spawn } from 'node:child_process';
-import { realpathSync } from 'node:fs';
+import { lstatSync, realpathSync } from 'node:fs';
 import { constants, homedir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -93,10 +93,19 @@ export function createMetadataStream(catalog, { maxFrameBytes = MAX_FRAME_BYTES 
   });
 }
 
+export function nativeCommand(args, env = process.env, home = homedir()) {
+  if (env.STUDIO_KIMI_NATIVE_PATH) return env.STUDIO_KIMI_NATIVE_PATH;
+  if (args[0] === 'acp' && env.KIMI_CODE_HOME) {
+    const selected = resolve(env.KIMI_CODE_HOME, 'studio-acp/kimi');
+    if (lstatSync(selected, { throwIfNoEntry: false })) return selected;
+  }
+  return resolve(home, '.kimi-code/bin/kimi');
+}
+
 async function main() {
   const args = process.argv.slice(2);
   const acp = args[0] === 'acp';
-  const command = process.env.STUDIO_KIMI_NATIVE_PATH || resolve(homedir(), '.kimi-code/bin/kimi');
+  const command = nativeCommand(args);
   if (realpathSync(command) === fileURLToPath(import.meta.url)) throw new Error('Native Kimi path points to the adapter');
   const catalog = acp ? await loadCatalog({ token: process.env.ANTHROPIC_AUTH_TOKEN, url: process.env.STUDIO_KIMI_CATALOG_URL }) : [];
   const child = spawn(command, args, { stdio: acp ? ['pipe', 'pipe', 'inherit'] : 'inherit', detached: acp });

@@ -8,6 +8,7 @@ import { resolveOllamaLocalHost, PROVIDERS } from "open-sse/config/providers.js"
 import { proxyAwareFetch } from "open-sse/utils/proxyFetch.js";
 import { CODEX_CLI_VERSION } from "open-sse/config/appConstants.js";
 import { validateMoonshotKey } from "open-sse/services/moonshot.js";
+import { validateLithosKey } from "open-sse/services/lithosai.js";
 import { GROK_CLI_PAGER_USER_AGENT, GROK_CLI_VERSION } from "open-sse/config/grokCli.js";
 import {
   NOUS_CHAT_COMPLETIONS_URL,
@@ -712,6 +713,9 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
         const valid = res.status !== 401 && res.status !== 403;
         return { valid, error: valid ? null : "Invalid API key" };
       }
+      case "lithosai":
+        return await validateLithosKey(connection.apiKey,
+          (url, options) => fetchWithConnectionProxy(url, options, effectiveProxy));
       case "moonshot":
         return await validateMoonshotKey(connection.apiKey,
           (url, options) => fetchWithConnectionProxy(url, options, effectiveProxy));

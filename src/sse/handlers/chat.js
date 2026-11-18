@@ -1,5 +1,6 @@
 import "open-sse/index.js";
 import { splitControlModel, resolveControls, controlLockKey } from "open-sse/services/studioControls.js";
+import { isLithosKimiModel } from "open-sse/config/lithosai.js";
 import { refreshOpenaiControlCapabilities } from "@/lib/studio/capabilities.js";
 import { OPENAI_POOL_PROVIDER, OPENAI_ELIGIBILITY_RECHECK_MS } from "open-sse/config/openaiPlatform.js";
 import { classifyOpenaiFailure } from "open-sse/services/openaiPlatform.js";
@@ -183,7 +184,9 @@ export async function handleChat(request, clientRawRequest = null) {
   // Single model request — may still switch to a capacity-adapter model if the
   // target lacks a capability the request needs (e.g. no vision, request has an image).
   const soloAugmented = await filterAdapterModels(keyAccess, (explicitControls ? [modelStr] : augmentModelsWithCapacityAdapter([modelStr], requiredCapabilities, settings)), [modelStr]);
-  if (soloAugmented.length > 1) {
+  // Resolve aliases before allowing a modality adapter to switch away from an explicit Lithos target.
+  const target = soloAugmented.length > 1 ? await getModelInfo(modelStr) : null;
+  if (soloAugmented.length > 1 && !isLithosKimiModel(target.provider, target.model)) {
     const adapterAdded = soloAugmented.filter((m) => m !== modelStr);
     log.info("CHAT", `Capacity adapter for [${[...requiredCapabilities].join(",")}] on "${modelStr}" → trying ${soloAugmented.join(", ")}`);
     return handleComboChat({

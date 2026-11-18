@@ -14,6 +14,7 @@ import {
 } from "open-sse/services/nous.js";
 import { normalizeProviderId } from "@/lib/providerNormalization";
 import { validateMoonshotKey } from "open-sse/services/moonshot.js";
+import { validateLithosKey } from "open-sse/services/lithosai.js";
 
 // Probe a webSearch/webFetch provider using its searchConfig/fetchConfig.
 // Returns true if API key is accepted (status !== 401 && !== 403).
@@ -315,6 +316,8 @@ export async function POST(request) {
           break;
 
 
+        case "lithosai":
+          return NextResponse.json(await validateLithosKey(apiKey));
         case "moonshot": {
           const result = await validateMoonshotKey(apiKey);
           isValid = result.valid;

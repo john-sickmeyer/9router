@@ -64,5 +64,14 @@ class HealthTest(unittest.TestCase):
         self.models.pop()
         with self.assertRaisesRegex(RuntimeError, 'catalog'): self.check(baseline)
 
+    def test_lithos_account_requires_its_own_model_and_efforts(self):
+        self.state['lithosModels'] = ['lithosai/kimi-k3.1-pro-ultra']
+        with self.assertRaisesRegex(RuntimeError, 'catalog'): self.check()
+        self.models.append({'id': self.state['lithosModels'][0], 'context_length': 1048576,
+            'capabilities': {'vision': True, 'tools': True, 'effort': {level: {'supported': True} for level in ['low', 'high', 'max']}}})
+        self.assertEqual(len(self.check()), 2)
+        del self.models[-1]['capabilities']['effort']['max']
+        with self.assertRaisesRegex(RuntimeError, 'LithosAI'): self.check()
+
 
 if __name__ == '__main__': unittest.main()

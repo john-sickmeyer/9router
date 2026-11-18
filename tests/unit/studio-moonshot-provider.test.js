@@ -69,6 +69,33 @@ beforeEach(() => {
 });
 afterAll(() => { global.fetch = originalFetch; });
 
+describe("LithosAI connection routes", () => {
+  it("keeps add, test and discovery on the saved Lithos key while translating its nested model ID", async () => {
+    const lithos = { ...connection, id: "lithos-fixture", provider: "lithosai", apiKey: "lithos-fixture-key" };
+    const data = [{ id: "moonshotai/Kimi-K3.1-Pro-ultra" }, { id: "deepseek-ai/DeepSeek-V4.1-Flash" }];
+    mocks.getConnection.mockResolvedValue(lithos);
+    global.fetch.mockImplementation(async () => response({ object: "list", data }));
+    const added = await validateProvider(new Request("http://localhost/api/providers/validate", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider: lithos.provider, apiKey: lithos.apiKey }),
+    }));
+    expect(await added.json()).toEqual({ valid: true, error: null });
+    expect((await testSingleConnection(lithos.id)).valid).toBe(true);
+    const listing = await listModels(new Request(`http://localhost/api/providers/${lithos.id}/models`),
+      { params: Promise.resolve({ id: lithos.id }) });
+    expect(await listing.json()).toMatchObject({ provider: "lithosai", models: [{
+      id: "kimi-k3.1-pro-ultra", upstreamModelId: data[0].id, thinkingLevels: ["low", "high", "max"],
+    }] });
+    expect(global.fetch).toHaveBeenCalledTimes(3);
+    for (const [url, options] of global.fetch.mock.calls) {
+      expect(url).toBe("https://api.lithosai.cloud/v1/models");
+      expect(options.method).toBe("GET");
+      expect(options.headers.Authorization).toBe("Bearer lithos-fixture-key");
+      expect(options.body).toBeUndefined();
+    }
+  });
+});
+
 describe("Kimi API Platform connection routes", () => {
   it("validates and tests saved keys with a free authenticated GET, never Code inference", async () => {
     global.fetch.mockImplementation(async () => response(models));
